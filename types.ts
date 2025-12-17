@@ -21,6 +21,13 @@ export interface RelationshipDef {
   color: string;
 }
 
+export interface CharacterGroup {
+  id: string;
+  label: string; // The group name/note
+  characterIds: string[];
+  color: string;
+}
+
 export interface Clue {
   id: string;
   name: string;
@@ -82,6 +89,7 @@ export interface AppState {
   characters: Character[];
   relationships: Relationship[];
   relationshipDefs: RelationshipDef[];
+  characterGroups: CharacterGroup[]; // New: Groups/Circles
   clues: Clue[];
   
   // Map & Timeline State
@@ -114,6 +122,7 @@ export const INITIAL_STATE: AppState = {
     { id: '3', label: '亲属', color: '#3b82f6' }, // Blue
     { id: '4', label: '普通', color: '#94a3b8' }, // Slate
   ],
+  characterGroups: [],
   clues: [],
   
   maps: [{ id: 'default', name: '主场景' }],

@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { parseCharacterList } from './utils/parser';
-import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue } from './types';
+import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue, CharacterGroup } from './types';
 import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
 import MapVisualizer from './components/MapVisualizer';
@@ -37,7 +37,7 @@ const App: React.FC = () => {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
           const parsed = JSON.parse(saved);
-          // Merge with INITIAL_STATE to ensure new fields (like graphLayout) exist in old saves
+          // Merge with INITIAL_STATE to ensure new fields (like characterGroups) exist in old saves
           return { ...INITIAL_STATE, ...parsed };
       }
       return INITIAL_STATE;
@@ -188,6 +188,30 @@ const App: React.FC = () => {
     }));
   };
 
+  // Group Handlers
+  const handleAddGroup = (group: CharacterGroup) => {
+    setState(prev => ({
+      ...prev,
+      characterGroups: [...(prev.characterGroups || []), group]
+    }));
+  };
+
+  const handleUpdateGroup = (updatedGroup: CharacterGroup) => {
+    setState(prev => ({
+      ...prev,
+      characterGroups: (prev.characterGroups || []).map(g => 
+        g.id === updatedGroup.id ? updatedGroup : g
+      )
+    }));
+  };
+
+  const handleRemoveGroup = (groupId: string) => {
+    setState(prev => ({
+      ...prev,
+      characterGroups: (prev.characterGroups || []).filter(g => g.id !== groupId)
+    }));
+  };
+
   // Drag and Drop Logic
   const handleCharacterDragStart = (e: React.DragEvent, charId: string) => {
     e.dataTransfer.setData("application/react-dnd-char-id", charId);
@@ -226,8 +250,11 @@ const App: React.FC = () => {
               ...prev,
               characters: prev.characters.filter(c => c.id !== id),
               relationships: prev.relationships.filter(r => r.source !== id && r.target !== id),
-              graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(cid => cid !== id)
-              // We keep timeline data as is, it will just filter out naturally in MapCanvas
+              graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(cid => cid !== id),
+              characterGroups: (prev.characterGroups || []).map(g => ({
+                  ...g,
+                  characterIds: g.characterIds.filter(cid => cid !== id)
+              })).filter(g => g.characterIds.length > 0)
           }));
           setEditingCharacter(null);
       }
@@ -442,12 +469,16 @@ const App: React.FC = () => {
                     characters={state.characters.filter(c => state.graphActiveCharacterIds.includes(c.id))} 
                     relationships={state.relationships} 
                     relationshipDefs={state.relationshipDefs || []}
+                    characterGroups={state.characterGroups || []}
                     layout={state.graphLayout}
                     onAddRelationship={handleAddRelationship}
                     onUpdateDefs={handleUpdateRelationshipDefs}
                     onNodeDrop={handleGraphNodeDrop}
                     onUpdateLayout={handleUpdateGraphLayout}
                     onRemoveNode={handleRemoveFromGraph}
+                    onAddGroup={handleAddGroup}
+                    onUpdateGroup={handleUpdateGroup}
+                    onRemoveGroup={handleRemoveGroup}
                 />
             )}
             
