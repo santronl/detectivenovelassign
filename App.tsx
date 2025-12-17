@@ -35,7 +35,12 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      return saved ? JSON.parse(saved) : INITIAL_STATE;
+      if (saved) {
+          const parsed = JSON.parse(saved);
+          // Merge with INITIAL_STATE to ensure new fields (like graphLayout) exist in old saves
+          return { ...INITIAL_STATE, ...parsed };
+      }
+      return INITIAL_STATE;
     } catch (e) {
       console.error("Failed to load local save", e);
       return INITIAL_STATE;
@@ -102,7 +107,8 @@ const App: React.FC = () => {
           // Basic validation to ensure it has required fields
           if (parsed.characters && parsed.relationships && parsed.maps) {
             if (confirm("导入将覆盖当前所有进度，确定继续吗？")) {
-                setState(parsed);
+                // Ensure we merge with initial state to avoid missing keys in imported file
+                setState({ ...INITIAL_STATE, ...parsed });
                 alert("存档读取成功！");
             }
           } else {

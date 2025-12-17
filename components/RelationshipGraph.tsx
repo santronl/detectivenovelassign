@@ -18,7 +18,7 @@ const RelationshipGraph: React.FC<Props> = ({
     characters, 
     relationships, 
     relationshipDefs,
-    layout,
+    layout = {}, // Default empty object to prevent crash if undefined
     onAddRelationship,
     onUpdateDefs,
     onNodeDrop,
@@ -139,9 +139,10 @@ const RelationshipGraph: React.FC<Props> = ({
     
     // Check if we need to auto-save any generated positions for new nodes
     const missingLayouts: Record<string, {x: number, y: number}> = {};
-    
+    const safeLayout = layout || {}; // Ensure safeLayout is defined
+
     const newNodes = characters.map(c => {
-        const storedPos = layout[c.id];
+        const storedPos = safeLayout[c.id];
         if (storedPos) {
             return { ...c, x: storedPos.x, y: storedPos.y };
         }
@@ -336,6 +337,7 @@ const RelationshipGraph: React.FC<Props> = ({
                  <div className="flex items-center justify-center text-slate-400">
                     <ZoomIn size={16} />
                  </div>
+                 {/* Replaced appearance-none + -webkit-slider-vertical with standard CSS approach + transform to avoid console warning */}
                  <input 
                     type="range" 
                     min="0.1" 
@@ -343,8 +345,8 @@ const RelationshipGraph: React.FC<Props> = ({
                     step="0.1" 
                     value={zoomLevel} 
                     onChange={handleZoomSlider}
-                    className="h-24 w-2 appearance-none bg-slate-700 rounded-full outline-none vertical-slider"
-                    style={{ writingMode: 'bt-lr' as any, WebkitAppearance: 'slider-vertical' }}
+                    className="h-24 w-2 bg-slate-700 rounded-full outline-none cursor-pointer"
+                    style={{ writingMode: 'vertical-lr', direction: 'rtl', appearance: 'auto' }}
                  />
                  <div className="flex items-center justify-center text-slate-400">
                     <ZoomOut size={16} />
