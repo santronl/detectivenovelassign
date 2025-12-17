@@ -332,59 +332,66 @@ const App: React.FC = () => {
           </div>
 
           {/* Character List Preview (Draggable) */}
-          <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg max-h-[400px] overflow-y-auto custom-scrollbar">
-            <h2 className="font-bold text-white flex items-center gap-2 mb-4 sticky top-0 bg-slate-800 pb-2 border-b border-slate-700">
-              <Users size={18} className="text-purple-400" />
-              登场人物 ({state.characters.length})
-            </h2>
-            <div className="space-y-2">
-              {state.characters.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-4">暂无角色</p>
-              ) : (
-                state.characters.map(char => (
-                  <div 
-                    key={char.id} 
-                    draggable
-                    onDragStart={(e) => handleCharacterDragStart(e, char.id)}
-                    className={`flex items-center justify-between p-2 rounded transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-slate-600 ${
-                        state.graphActiveCharacterIds.includes(char.id) ? 'bg-slate-700/50 opacity-50' : 'bg-slate-700 hover:bg-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <GripVertical size={14} className="text-slate-500" />
-                      <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300">
-                        {char.name.charAt(0)}
-                      </div>
-                      <div className="flex-1">
-                        <div 
-                            onClick={(e) => { e.preventDefault(); setEditingCharacter(char); }}
-                            className="text-sm font-medium text-blue-300 hover:text-blue-100 cursor-pointer underline decoration-dotted underline-offset-4 w-fit"
-                            title="点击编辑角色信息"
-                        >
-                            {char.name}
-                        </div>
-                        <div className="text-[10px] text-slate-500 truncate max-w-[150px]">
-                            {char.note ? (
-                                <span className="text-yellow-500/80 mr-1">[{char.note.substring(0, 5)}...]</span>
-                            ) : null}
-                            {char.role || char.raw_info}
-                        </div>
-                      </div>
-                      
-                      {/* Quick Edit Icon */}
-                      <button 
-                        onClick={() => setEditingCharacter(char)}
-                        className="p-1.5 text-slate-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                      >
-                          <Edit3 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))
-              )}
+          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg flex flex-col max-h-[400px]">
+            {/* Header - Fixed */}
+            <div className="p-5 pb-0 shrink-0">
+                <h2 className="font-bold text-white flex items-center gap-2 mb-4 pb-2 border-b border-slate-700">
+                  <Users size={18} className="text-purple-400" />
+                  登场人物 ({state.characters.length})
+                </h2>
             </div>
-            <div className="mt-2 text-[10px] text-slate-500 text-center">
-                提示: 拖拽角色到关系网或地图中。点击人名可添加备注。
+            
+            {/* List - Scrollable */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-5 pt-0">
+                <div className="space-y-2">
+                  {state.characters.length === 0 ? (
+                    <p className="text-sm text-slate-500 text-center py-4">暂无角色</p>
+                  ) : (
+                    state.characters.map(char => (
+                      <div 
+                        key={char.id} 
+                        draggable
+                        onDragStart={(e) => handleCharacterDragStart(e, char.id)}
+                        className={`flex items-center justify-between p-2 rounded transition-colors group cursor-grab active:cursor-grabbing border border-transparent hover:border-slate-600 ${
+                            state.graphActiveCharacterIds.includes(char.id) ? 'bg-slate-700/50 opacity-50' : 'bg-slate-700 hover:bg-slate-600'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <GripVertical size={14} className="text-slate-500" />
+                          <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-300">
+                            {char.name.charAt(0)}
+                          </div>
+                          <div className="flex-1">
+                            <div 
+                                onClick={(e) => { e.preventDefault(); setEditingCharacter(char); }}
+                                className="text-sm font-medium text-blue-300 hover:text-blue-100 cursor-pointer underline decoration-dotted underline-offset-4 w-fit"
+                                title="点击编辑角色信息"
+                            >
+                                {char.name}
+                            </div>
+                            <div className="text-[10px] text-slate-500 truncate max-w-[150px]">
+                                {char.note ? (
+                                    <span className="text-yellow-500/80 mr-1">[{char.note.substring(0, 5)}...]</span>
+                                ) : null}
+                                {char.role || char.raw_info}
+                            </div>
+                          </div>
+                          
+                          {/* Quick Edit Icon */}
+                          <button 
+                            onClick={() => setEditingCharacter(char)}
+                            className="p-1.5 text-slate-500 hover:text-white rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                              <Edit3 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+                <div className="mt-2 text-[10px] text-slate-500 text-center pt-2">
+                    提示: 拖拽角色到关系网或地图中。点击人名可添加备注。
+                </div>
             </div>
           </div>
         </div>
