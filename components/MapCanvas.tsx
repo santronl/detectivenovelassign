@@ -335,9 +335,9 @@ const MapCanvas: React.FC<Props> = ({
   const pointsToString = (points: Point[]) => points.map(p => `${p.x},${p.y}`).join(' ');
 
   return (
-    <div className="flex flex-col gap-4 h-full relative">
+    <div className="flex flex-col gap-2 h-[650px] lg:h-[calc(100vh-180px)] min-h-[500px] relative">
       {/* Top Bar: Maps & Tools */}
-      <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700">
+      <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 shrink-0">
         <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[60%]">
             {maps.map(m => (
                 editingMapId === m.id ? (
@@ -394,117 +394,110 @@ const MapCanvas: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Main Content: Canvas & Editor */}
-      <div className="flex-1 flex flex-col lg:flex-row gap-4 min-h-[500px] relative">
+      {/* Main Map Viewport */}
+      <div className="flex-1 relative bg-slate-900 border border-slate-700 rounded-lg overflow-hidden flex flex-col min-h-0">
          {/* Canvas Wrapper */}
-         <div className="flex-1 relative bg-slate-900 border border-slate-700 rounded-lg overflow-hidden flex flex-col">
+        <div ref={wrapperRef} className="flex-1 w-full h-full flex items-center justify-center bg-[#1e293b] overflow-hidden relative">
             
-            {/* Map Area (Responsive Wrapper) */}
-            <div ref={wrapperRef} className="flex-1 w-full h-full flex items-center justify-center bg-[#1e293b] overflow-hidden relative">
-                {/* Map Container (Sized to Image Aspect Ratio) */}
-                <div 
-                    ref={containerRef}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    onDrop={handleDrop}
-                    onClick={handleCanvasClick}
-                    style={{ 
-                        width: displaySize.w, 
-                        height: displaySize.h 
-                    }}
-                    className={`relative shadow-2xl transition-all duration-75
-                        ${isDrawing ? 'cursor-crosshair' : 'cursor-default'}
-                        ${dragOverMap ? 'ring-2 ring-blue-500 ring-inset' : ''}
-                    `}
-                >
-                    {!currentMap.imageUrl ? (
-                        <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 pointer-events-none select-none border border-slate-700/30">
-                            <MapPin size={48} className="mb-2 opacity-50" />
-                            <p>请上传背景图或直接拖入角色</p>
-                        </div>
-                    ) : (
-                        <img 
-                            src={currentMap.imageUrl} 
-                            className="w-full h-full pointer-events-none select-none" 
-                            alt="map" 
-                            onLoad={(e) => setNaturalSize({w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight})}
-                        />
+            {/* Map Container (Sized to Image Aspect Ratio) */}
+            <div 
+                ref={containerRef}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
+                onClick={handleCanvasClick}
+                style={{ 
+                    width: displaySize.w, 
+                    height: displaySize.h 
+                }}
+                className={`relative shadow-2xl transition-all duration-75
+                    ${isDrawing ? 'cursor-crosshair' : 'cursor-default'}
+                    ${dragOverMap ? 'ring-2 ring-blue-500 ring-inset' : ''}
+                `}
+            >
+                {!currentMap.imageUrl ? (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 pointer-events-none select-none border border-slate-700/30">
+                        <MapPin size={48} className="mb-2 opacity-50" />
+                        <p>请上传背景图或直接拖入角色</p>
+                    </div>
+                ) : (
+                    <img 
+                        src={currentMap.imageUrl} 
+                        className="w-full h-full pointer-events-none select-none" 
+                        alt="map" 
+                        onLoad={(e) => setNaturalSize({w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight})}
+                    />
+                )}
+
+                <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+                    {/* Spaces */}
+                    {currentSpaces.map(space => space.coordinates && (
+                        <g 
+                            key={space.id} 
+                            onClick={(e) => { 
+                                e.stopPropagation(); 
+                                setSelectedSpaceId(space.id); 
+                                setEditForm({ 
+                                    name: space.name, 
+                                    attributes: space.attributes,
+                                    note: space.note || "" 
+                                }); 
+                            }}
+                        >
+                            <polygon
+                                points={pointsToString(space.coordinates)}
+                                className={`stroke-[0.5] hover:stroke-1 hover:fill-blue-500/40 transition-all cursor-pointer
+                                    ${selectedSpaceId === space.id ? 'fill-blue-500/50 stroke-blue-300' : 'fill-blue-500/10 stroke-blue-500/30'}
+                                    ${space.attributes.includes('密室') ? 'fill-purple-500/20 stroke-purple-400' : ''}
+                                `}
+                            />
+                            {/* Space Label */}
+                            {(() => {
+                                const centerX = space.coordinates.reduce((sum, p) => sum + p.x, 0) / space.coordinates.length;
+                                const centerY = space.coordinates.reduce((sum, p) => sum + p.y, 0) / space.coordinates.length;
+                                return (
+                                <text x={centerX} y={centerY} fontSize="3" fill="white" textAnchor="middle" className="pointer-events-none drop-shadow-md font-bold opacity-70">
+                                    {space.name}
+                                </text>
+                                );
+                            })()}
+                        </g>
+                    ))}
+                    {currentPoints.length > 0 && (
+                        <polygon points={pointsToString(currentPoints)} className="fill-blue-500/20 stroke-blue-400 stroke-[0.5]" />
                     )}
+                </svg>
 
-                    <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        {/* Spaces */}
-                        {currentSpaces.map(space => space.coordinates && (
-                            <g 
-                                key={space.id} 
-                                onClick={(e) => { 
-                                    e.stopPropagation(); 
-                                    setSelectedSpaceId(space.id); 
-                                    setEditForm({ 
-                                        name: space.name, 
-                                        attributes: space.attributes,
-                                        note: space.note || "" 
-                                    }); 
-                                }}
-                            >
-                                <polygon
-                                    points={pointsToString(space.coordinates)}
-                                    className={`stroke-[0.5] hover:stroke-1 hover:fill-blue-500/40 transition-all cursor-pointer
-                                        ${selectedSpaceId === space.id ? 'fill-blue-500/50 stroke-blue-300' : 'fill-blue-500/10 stroke-blue-500/30'}
-                                        ${space.attributes.includes('密室') ? 'fill-purple-500/20 stroke-purple-400' : ''}
-                                    `}
-                                />
-                                {/* Space Label */}
-                                {(() => {
-                                    const centerX = space.coordinates.reduce((sum, p) => sum + p.x, 0) / space.coordinates.length;
-                                    const centerY = space.coordinates.reduce((sum, p) => sum + p.y, 0) / space.coordinates.length;
-                                    return (
-                                    <text x={centerX} y={centerY} fontSize="3" fill="white" textAnchor="middle" className="pointer-events-none drop-shadow-md font-bold opacity-70">
-                                        {space.name}
-                                    </text>
-                                    );
-                                })()}
-                            </g>
-                        ))}
-                        {currentPoints.length > 0 && (
-                            <polygon points={pointsToString(currentPoints)} className="fill-blue-500/20 stroke-blue-400 stroke-[0.5]" />
-                        )}
-                    </svg>
-
-                    {/* Character Tokens Layer */}
-                    {currentPlacements.filter(p => p.mapId === currentMapId).map(p => {
-                        const char = characters.find(c => c.id === p.characterId);
-                        if (!char) return null;
-                        return (
-                            <div
-                                key={p.characterId}
-                                draggable
-                                onDragStart={(e) => handleTokenDragStart(e, p.characterId)}
-                                onContextMenu={(e) => handleTokenContextMenu(e, p.characterId)}
-                                className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-10"
-                                style={{ left: `${p.x}%`, top: `${p.y}%` }}
-                            >
-                                <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-white shadow-lg flex items-center justify-center text-xs font-bold text-white relative">
-                                    {char.name.charAt(0)}
-                                    <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/75 text-[10px] px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {char.name}
-                                    </div>
+                {/* Character Tokens Layer */}
+                {currentPlacements.filter(p => p.mapId === currentMapId).map(p => {
+                    const char = characters.find(c => c.id === p.characterId);
+                    if (!char) return null;
+                    return (
+                        <div
+                            key={p.characterId}
+                            draggable
+                            onDragStart={(e) => handleTokenDragStart(e, p.characterId)}
+                            onContextMenu={(e) => handleTokenContextMenu(e, p.characterId)}
+                            className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-10"
+                            style={{ left: `${p.x}%`, top: `${p.y}%` }}
+                        >
+                            <div className="w-8 h-8 rounded-full bg-slate-800 border-2 border-white shadow-lg flex items-center justify-center text-xs font-bold text-white relative">
+                                {char.name.charAt(0)}
+                                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/75 text-[10px] px-1 rounded opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {char.name}
                                 </div>
                             </div>
-                        );
-                    })}
-                </div>
+                        </div>
+                    );
+                })}
             </div>
-         </div>
 
-         {/* Right Sidebar: Timeline or Space Edit */}
-         <div className="w-full lg:w-80 flex flex-col gap-4">
-             
-             {/* Mode 1: Space Edit (If selected) */}
-             {selectedSpaceId && editForm ? (
-                <div className="bg-slate-800 rounded-lg border border-slate-700 flex flex-col h-full animate-in slide-in-from-right duration-200">
-                    <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-                        <h3 className="font-bold text-white flex items-center gap-2">
-                           <Edit3 size={16} className="text-blue-400" />
+            {/* Floating Space Editor Panel */}
+            {selectedSpaceId && editForm && (
+                <div className="absolute right-4 top-4 bottom-4 w-72 bg-slate-800/95 backdrop-blur-md border border-slate-600 rounded-lg shadow-2xl z-30 flex flex-col animate-in slide-in-from-right duration-200">
+                    <div className="p-3 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-lg">
+                        <h3 className="font-bold text-white flex items-center gap-2 text-sm">
+                           <Edit3 size={14} className="text-blue-400" />
                            区域编辑
                         </h3>
                         <button onClick={() => { setSelectedSpaceId(null); setEditForm(null); }} className="text-slate-500 hover:text-white">
@@ -512,25 +505,25 @@ const MapCanvas: React.FC<Props> = ({
                         </button>
                     </div>
                     
-                    <div className="p-4 space-y-4 flex-1 overflow-y-auto">
+                    <div className="p-3 space-y-3 flex-1 overflow-y-auto">
                         <div>
                            <label className="text-xs font-bold text-slate-400 mb-1 block">区域名称</label>
                            <input
                              value={editForm.name}
                              onChange={e => setEditForm({...editForm, name: e.target.value})}
-                             className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                             className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none"
                              autoFocus
                            />
                         </div>
 
                         <div>
                            <label className="text-xs font-bold text-slate-400 mb-1 block">属性标签</label>
-                           <div className="flex flex-wrap gap-2">
+                           <div className="flex flex-wrap gap-1.5">
                              {['密室', '上锁', '未探索', '危险', '案发现场'].map(attr => (
                                 <button
                                   key={attr}
                                   onClick={() => toggleAttribute(attr)}
-                                  className={`text-xs px-2 py-1 rounded border transition-colors ${
+                                  className={`text-[10px] px-2 py-1 rounded border transition-colors ${
                                     editForm.attributes.includes(attr)
                                       ? 'bg-blue-600 border-blue-500 text-white shadow'
                                       : 'bg-slate-700 border-slate-600 text-slate-400 hover:bg-slate-600'
@@ -543,17 +536,17 @@ const MapCanvas: React.FC<Props> = ({
                         </div>
 
                         <div>
-                           <label className="text-xs font-bold text-slate-400 mb-1 block">场景备注 / 描述</label>
+                           <label className="text-xs font-bold text-slate-400 mb-1 block">场景备注</label>
                            <textarea
                              value={editForm.note}
                              onChange={e => setEditForm({...editForm, note: e.target.value})}
-                             className="w-full h-32 bg-slate-900 border border-slate-600 rounded p-2 text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 outline-none"
-                             placeholder="描述该区域的特征、细节或发现..."
+                             className="w-full h-40 bg-slate-900 border border-slate-600 rounded p-2 text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 outline-none"
+                             placeholder="描述特征..."
                            />
                         </div>
                     </div>
 
-                    <div className="p-4 border-t border-slate-700 bg-slate-800/50 flex gap-2">
+                    <div className="p-3 border-t border-slate-700 bg-slate-800/50 flex gap-2 rounded-b-lg">
                         <button 
                             onClick={() => {
                                 const newSpaces = spaces.filter(s => s.id !== selectedSpaceId);
@@ -561,73 +554,86 @@ const MapCanvas: React.FC<Props> = ({
                                 setSelectedSpaceId(null);
                                 setEditForm(null);
                             }} 
-                            className="flex-1 py-2 text-red-400 hover:bg-red-900/20 rounded text-sm transition-colors flex items-center justify-center gap-2"
+                            className="p-2 text-red-400 hover:bg-red-900/20 rounded transition-colors"
+                            title="删除"
                         >
-                            <Trash2 size={14} /> 删除
+                            <Trash2 size={16} />
                         </button>
                         <button 
                             onClick={saveEdit} 
-                            className="flex-1 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow"
+                            className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow"
                         >
-                            保存修改
+                            保存
                         </button>
                     </div>
                 </div>
-             ) : (
-                /* Mode 2: Timeline (Default) */
-                <div className="bg-slate-800 rounded-lg border border-slate-700 flex flex-col h-full">
-                    <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-                        <h3 className="font-bold text-white flex items-center gap-2">
-                           <Clock size={16} className="text-orange-400" />
-                           时间线
-                        </h3>
-                        <button onClick={handleOpenTimeModal} className="text-slate-400 hover:text-white">
-                            <Plus size={16} />
-                        </button>
+            )}
+         </div>
+      </div>
+
+      {/* Horizontal Timeline Strip */}
+      <div className="shrink-0 h-28 bg-slate-800 rounded-lg border border-slate-700 flex flex-col">
+        <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+            <h3 className="font-bold text-white flex items-center gap-2 text-sm">
+                <Clock size={14} className="text-orange-400" />
+                时间线
+            </h3>
+            <button onClick={handleOpenTimeModal} className="text-slate-400 hover:text-white p-1 hover:bg-slate-700 rounded">
+                <Plus size={14} />
+            </button>
+        </div>
+        
+        <div className="flex-1 overflow-x-auto flex items-center p-2 gap-2 custom-scrollbar">
+            {timePoints.map((tp) => (
+                <div 
+                    key={tp.id}
+                    draggable
+                    onDragStart={(e) => handleTimeDragStart(e, tp.id)}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => handleTimeDrop(e, tp.id)}
+                    onClick={() => onSelectTime(tp.id)}
+                    className={`group flex-shrink-0 w-40 h-full p-2 rounded cursor-pointer border transition-all relative flex flex-col justify-between ${
+                        currentTimeId === tp.id 
+                            ? 'bg-slate-700 border-orange-500/50 shadow-md' 
+                            : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'
+                    }`}
+                >
+                    <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-2">
+                             <GripVertical size={12} className="text-slate-600 cursor-grab opacity-0 group-hover:opacity-100" />
+                             <span className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>
+                                 {tp.label}
+                             </span>
+                        </div>
+                        {timePoints.length > 1 && (
+                            <button 
+                                onClick={(e) => handleDeleteTimePoint(e, tp.id)}
+                                className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                                <X size={12} />
+                            </button>
+                        )}
                     </div>
                     
-                    <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
-                        {timePoints.map((tp) => (
-                            <div 
-                                key={tp.id}
-                                draggable
-                                onDragStart={(e) => handleTimeDragStart(e, tp.id)}
-                                onDragOver={(e) => e.preventDefault()}
-                                onDrop={(e) => handleTimeDrop(e, tp.id)}
-                                onClick={() => onSelectTime(tp.id)}
-                                className={`group flex items-center justify-between p-3 rounded cursor-pointer border transition-all relative ${
-                                    currentTimeId === tp.id 
-                                        ? 'bg-slate-700 border-orange-500/50 shadow-md' 
-                                        : 'bg-slate-800 border-transparent hover:bg-slate-700/50 hover:border-slate-600'
-                                }`}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <GripVertical size={14} className="text-slate-600 cursor-grab opacity-0 group-hover:opacity-100" />
-                                    <div>
-                                        <div className={`text-sm font-bold ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>
-                                            {tp.label}
-                                        </div>
-                                        <div className="text-[10px] text-slate-500">
-                                            {timelineData[tp.id] ? timelineData[tp.id].length : 0} 角色在场
-                                        </div>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={(e) => handleDeleteTimePoint(e, tp.id)}
-                                    className="p-1.5 text-slate-500 hover:text-red-400 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                                >
-                                    <Trash2 size={14} />
-                                </button>
-                                
-                                {currentTimeId === tp.id && (
-                                    <div className="absolute right-0 top-0 bottom-0 w-1 bg-orange-500 rounded-r"></div>
-                                )}
-                            </div>
-                        ))}
+                    <div className="flex items-end justify-between mt-2">
+                         <div className="text-[10px] text-slate-500">
+                             {timelineData[tp.id]?.length || 0} 角色
+                         </div>
+                         {currentTimeId === tp.id && (
+                             <div className="w-full h-0.5 bg-orange-500 absolute bottom-0 left-0 right-0 rounded-b"></div>
+                         )}
                     </div>
                 </div>
-             )}
-         </div>
+            ))}
+            
+            {/* Add Button Shortcut */}
+            <button 
+                onClick={handleOpenTimeModal}
+                className="flex-shrink-0 w-8 h-full rounded border border-dashed border-slate-700 hover:border-slate-500 hover:bg-slate-800 flex items-center justify-center text-slate-500 transition-colors"
+            >
+                <Plus size={16} />
+            </button>
+        </div>
       </div>
 
       {/* --- Modals --- */}
