@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { parseCharacterList } from './utils/parser';
 import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue } from './types';
-import { analyzeMysteryText } from './services/geminiService';
 import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
 import MapVisualizer from './components/MapVisualizer';
@@ -11,7 +10,6 @@ import {
   Map as MapIcon, 
   Search, 
   Database, 
-  Sparkles, 
   BookOpen,
   GripVertical,
   Download,
@@ -45,9 +43,7 @@ const App: React.FC = () => {
   });
 
   const [inputText, setInputText] = useState('');
-  const [isProcessing, setIsProcessing] = useState(false);
   const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
-  const [importMode, setImportMode] = useState<'text' | 'characters'>('text');
   
   // Character Editing State
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
@@ -77,30 +73,6 @@ const App: React.FC = () => {
       alert('未识别到符合格式的角色。请确保格式如：01. 姓名 描述');
     }
   }, [inputText]);
-
-  const handleAIAnalysis = useCallback(async () => {
-    if (!process.env.API_KEY) {
-      alert("请配置 API_KEY");
-      return;
-    }
-    
-    setIsProcessing(true);
-    try {
-      const result = await analyzeMysteryText(inputText, state);
-      
-      setState(prev => ({
-        ...prev,
-        relationships: [...prev.relationships, ...(result.relationships || [])],
-        clues: [...prev.clues, ...(result.clues || [])],
-        spaces: [...prev.spaces, ...(result.spaces || [])],
-        // alibis removed
-        characters: prev.characters
-      }));
-      setInputText('');
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [inputText, state]);
 
   // Data Persistence Handlers
   const handleExportData = () => {
@@ -326,71 +298,37 @@ const App: React.FC = () => {
         {/* Left Column: Input & Context */}
         <div className="lg:col-span-4 space-y-6">
           
-          {/* Input Panel */}
+          {/* Input Panel (Simplified for Manual Use) */}
           <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-bold text-white flex items-center gap-2">
                 <Database size={18} className="text-blue-400" />
-                信息录入
+                批量导入角色
               </h2>
-              <div className="flex bg-slate-900 rounded-lg p-1 text-xs">
-                <button 
-                  onClick={() => setImportMode('characters')}
-                  className={`px-3 py-1.5 rounded-md transition-all ${importMode === 'characters' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-                >
-                  角色导入
-                </button>
-                <button 
-                  onClick={() => setImportMode('text')}
-                  className={`px-3 py-1.5 rounded-md transition-all ${importMode === 'text' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
-                >
-                  剧情分析
-                </button>
-              </div>
             </div>
 
             <textarea
-              className="w-full h-48 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none font-mono"
-              placeholder={importMode === 'characters' 
-                ? "输入角色列表 (例: 01. 赫尔克里·波洛 侦探)" 
-                : "粘贴小说片段，AI将提取线索、关系与地点..."}
+              className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/50 resize-none font-mono"
+              placeholder="输入角色列表，例如:
+01. 赫尔克里·波洛 侦探
+02. 黑斯廷斯 助手"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
             />
 
-            <div className="mt-4 flex justify-end">
-              {importMode === 'characters' ? (
+            <div className="mt-4 flex justify-between items-center">
+                <div className="text-[10px] text-slate-500">
+                    自动识别格式：编号. 姓名 描述
+                </div>
                 <button
                   onClick={handleParseCharacters}
                   disabled={!inputText.trim()}
                   className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50"
                 >
                   <Users size={16} />
-                  解析角色列表
+                  解析列表
                 </button>
-              ) : (
-                <button
-                  onClick={handleAIAnalysis}
-                  disabled={!inputText.trim() || isProcessing}
-                  className="bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 disabled:opacity-50 shadow-lg shadow-blue-900/20"
-                >
-                  {isProcessing ? (
-                    <span className="animate-spin">⏳</span>
-                  ) : (
-                    <Sparkles size={16} />
-                  )}
-                  {isProcessing ? '分析中...' : '智能提取'}
-                </button>
-              )}
             </div>
-            
-            {importMode === 'characters' && (
-              <div className="mt-4 p-3 bg-slate-900/50 rounded border border-slate-700/50 text-xs text-slate-500">
-                <p className="font-bold mb-1">格式说明:</p>
-                <p>自动忽略开头的数字编号，提取第一个中文词组作为人名。</p>
-                <p className="mt-1 font-mono opacity-70">01. 波洛 侦探 → 提取 "波洛"</p>
-              </div>
-            )}
           </div>
 
           {/* Character List Preview (Draggable) */}
@@ -577,10 +515,10 @@ const App: React.FC = () => {
                             placeholder="在此输入关于该角色的详细笔记..."
                         />
                     </div>
-                     {/* Read-only AI Description */}
+                     {/* Read-only Description */}
                      {editingCharacter.description && (
                          <div className="bg-slate-900/50 p-3 rounded border border-slate-700/50">
-                             <div className="text-[10px] uppercase text-purple-400 font-bold mb-1 flex items-center gap-1"><Sparkles size={10}/> AI 生成描述</div>
+                             <div className="text-[10px] uppercase text-purple-400 font-bold mb-1 flex items-center gap-1">详细描述</div>
                              <p className="text-xs text-slate-400">{editingCharacter.description}</p>
                          </div>
                      )}
