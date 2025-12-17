@@ -12,6 +12,7 @@ interface Props {
   onUpdateDefs: (defs: RelationshipDef[]) => void;
   onNodeDrop: (charId: string) => void;
   onUpdateLayout: (layout: Record<string, { x: number; y: number }>) => void;
+  onRemoveNode: (charId: string) => void;
 }
 
 const RelationshipGraph: React.FC<Props> = ({ 
@@ -22,13 +23,14 @@ const RelationshipGraph: React.FC<Props> = ({
     onAddRelationship,
     onUpdateDefs,
     onNodeDrop,
-    onUpdateLayout
+    onUpdateLayout,
+    onRemoveNode
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const zoomBehaviorRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   
-  const [mode, setMode] = useState<'move' | 'connect'>('move');
+  const [mode, setMode] = useState<'move' | 'connect' | 'delete'>('move');
   const [activeDefId, setActiveDefId] = useState<string>(relationshipDefs[0]?.id);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState(1);
@@ -231,9 +233,13 @@ const RelationshipGraph: React.FC<Props> = ({
             .data(newNodes)
             .join("g")
             .attr("transform", (d: any) => `translate(${d.x},${d.y})`)
-            .attr("cursor", "grab")
+            .attr("cursor", mode === 'delete' ? 'not-allowed' : 'grab') // Change cursor in delete mode
             .on("click", (event, d: any) => {
-                if (mode === 'connect') {
+                if (mode === 'delete') {
+                    event.stopPropagation();
+                    // Remove node callback
+                    onRemoveNode(d.id);
+                } else if (mode === 'connect') {
                     event.stopPropagation();
                     containerRef.current?.dispatchEvent(new CustomEvent('node-click', { detail: { id: d.id } }));
                 }
@@ -245,7 +251,14 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("r", 20)
             .attr("fill", "#1e293b") 
             .attr("stroke", (d: any) => d.id === selectedSource ? '#ef4444' : '#3b82f6')
-            .attr("stroke-width", (d: any) => d.id === selectedSource ? 4 : 2);
+            .attr("stroke-width", (d: any) => d.id === selectedSource ? 4 : 2)
+            // Visual feedback for hover in delete mode
+            .on("mouseover", function() {
+                if (mode === 'delete') d3.select(this).attr("stroke", "#ef4444").attr("fill", "#450a0a");
+            })
+            .on("mouseout", function(event, d: any) {
+                if (mode === 'delete') d3.select(this).attr("stroke", d.id === selectedSource ? '#ef4444' : '#3b82f6').attr("fill", "#1e293b");
+            });
 
         // Draw Node Text
         node.selectAll("text").remove();
@@ -321,6 +334,7 @@ const RelationshipGraph: React.FC<Props> = ({
             onDrop={handleDrop}
             className={`flex-1 bg-slate-800 rounded-lg overflow-hidden border shadow-inner relative flex flex-col transition-all
                 ${isDragOver ? 'border-blue-500 bg-slate-800/80' : 'border-slate-700'}
+                ${mode === 'delete' ? 'ring-2 ring-red-500/30' : ''}
             `}
         >
             {characters.length === 0 && (
@@ -362,6 +376,12 @@ const RelationshipGraph: React.FC<Props> = ({
                     {selectedSource ? "点击另一个角色以连线" : "点击起始角色"}
                 </div>
             )}
+            {mode === 'delete' && (
+                <div className="absolute top-4 left-4 bg-red-900/80 backdrop-blur px-3 py-1.5 rounded-full border border-red-500/50 text-red-200 text-xs font-bold pointer-events-none animate-pulse flex items-center gap-2">
+                    <Trash2 size={12} />
+                    点击人物以移除
+                </div>
+            )}
         </div>
 
         {/* Control Panel */}
@@ -372,16 +392,23 @@ const RelationshipGraph: React.FC<Props> = ({
                 <button 
                     onClick={() => { setMode('move'); setSelectedSource(null); }}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-medium transition-all ${mode === 'move' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                    title="移动模式"
                 >
                     <Move size={16} />
-                    移动
                 </button>
                 <button 
                     onClick={() => setMode('connect')}
                     className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-medium transition-all ${mode === 'connect' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}
+                    title="连线模式"
                 >
                     <LinkIcon size={16} />
-                    连线
+                </button>
+                <button 
+                    onClick={() => { setMode('delete'); setSelectedSource(null); }}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2 rounded text-sm font-medium transition-all ${mode === 'delete' ? 'bg-red-600 text-white shadow' : 'text-slate-400 hover:text-red-400'}`}
+                    title="删除模式"
+                >
+                    <Trash2 size={16} />
                 </button>
             </div>
 

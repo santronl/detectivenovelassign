@@ -203,6 +203,14 @@ const App: React.FC = () => {
     }
   };
 
+  // Remove character from graph view only (keep data)
+  const handleRemoveFromGraph = (charId: string) => {
+      setState(prev => ({
+          ...prev,
+          graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(id => id !== charId)
+      }));
+  };
+
   // Character Editing Logic
   const handleSaveCharacter = (updatedChar: Character) => {
     setState(prev => ({
@@ -439,6 +447,7 @@ const App: React.FC = () => {
                     onUpdateDefs={handleUpdateRelationshipDefs}
                     onNodeDrop={handleGraphNodeDrop}
                     onUpdateLayout={handleUpdateGraphLayout}
+                    onRemoveNode={handleRemoveFromGraph}
                 />
             )}
             
