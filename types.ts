@@ -57,6 +57,7 @@ export interface Space {
   attributes: string[]; // e.g., "上锁", "密室"
   connected_to: string[]; // Space IDs or Names
   coordinates?: Point[]; // Array of percentages {x: 0-100, y: 0-100}
+  note?: string; // Annotation for the scene details
 }
 
 // Timeline Management
