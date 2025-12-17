@@ -7,6 +7,8 @@ export default defineConfig(({ mode }) => {
   // Set the third parameter to '' to load all env regardless of the `VITE_` prefix.
   const env = loadEnv(mode, (process as any).cwd(), '');
   return {
+    // IMPORTANT: base must be './' for Electron to load assets from the local file system
+    base: './', 
     plugins: [react()],
     define: {
       // Polyfill process.env.API_KEY for the existing code structure
