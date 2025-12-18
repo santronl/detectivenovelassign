@@ -36,13 +36,20 @@ export interface Clue {
   description?: string;
 }
 
+// Added missing Alibi interface
 export interface Alibi {
-  id: string;
   character_id: string;
   time_period: string;
   location: string;
   status: '确凿' | '模糊' | '无证明';
   details?: string;
+}
+
+export interface SaveSlot {
+  id: string;
+  name: string;
+  timestamp: number;
+  data: AppState;
 }
 
 export interface Point {
@@ -91,6 +98,8 @@ export interface AppState {
   relationshipDefs: RelationshipDef[];
   characterGroups: CharacterGroup[]; // New: Groups/Circles
   clues: Clue[];
+  // Added alibis to AppState
+  alibis: Alibi[];
   
   // Map & Timeline State
   maps: MapDoc[];
@@ -107,12 +116,6 @@ export interface AppState {
   graphLayout: Record<string, { x: number; y: number }>;
 }
 
-// Action types for the reducer or state update
-export type ActionType = 
-  | { type: 'IMPORT_CHARACTERS'; payload: Character[] }
-  | { type: 'UPDATE_MAP'; payload: Space[] }
-  | { type: 'RESET' };
-
 export const INITIAL_STATE: AppState = {
   characters: [],
   relationships: [],
@@ -124,6 +127,7 @@ export const INITIAL_STATE: AppState = {
   ],
   characterGroups: [],
   clues: [],
+  alibis: [],
   
   maps: [{ id: 'default', name: '主场景' }],
   spaces: [],
