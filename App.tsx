@@ -287,7 +287,16 @@ const App: React.FC = () => {
                   >
                     <div className="flex items-center gap-3 truncate">
                       <GripVertical size={14} className="text-slate-500 shrink-0" />
-                      <span className="text-sm font-medium text-blue-300 truncate cursor-pointer hover:underline" onClick={() => setEditingCharacter(char)}>{char.name}</span>
+                      <div className="flex flex-col truncate min-w-0">
+                        <span className="text-sm font-medium text-blue-300 truncate cursor-pointer hover:underline" onClick={() => setEditingCharacter(char)}>
+                          {char.name}
+                        </span>
+                        {char.raw_info && (
+                          <span className="text-[10px] text-slate-500 truncate mt-0.5 font-normal">
+                            {char.raw_info}
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button 
@@ -538,7 +547,7 @@ const App: React.FC = () => {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">姓名</label>
+                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">姓名</label>
                 <input 
                     className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" 
                     value={editingCharacter.name} 
@@ -546,7 +555,16 @@ const App: React.FC = () => {
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold text-slate-400 mb-1">笔记与备注</label>
+                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">身份 / 初始描述</label>
+                <input 
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" 
+                    value={editingCharacter.raw_info || ''} 
+                    onChange={e => setEditingCharacter({...editingCharacter, raw_info: e.target.value})} 
+                    placeholder="例如: 侦探, 受害者的好友..."
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">笔记与备注</label>
                 <textarea 
                     className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none" 
                     value={editingCharacter.note || ''} 
