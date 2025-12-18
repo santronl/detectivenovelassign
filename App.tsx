@@ -7,8 +7,6 @@ import EvidenceBoard from './components/EvidenceBoard';
 import AlibiMatrix from './components/AlibiMatrix';
 import MapCanvas from './components/MapCanvas';
 import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle } from './services/storage';
-// Import AI service logic
-import { analyzeMysteryText } from './services/geminiService';
 import { 
   Users, 
   Map as MapIcon, 
@@ -16,12 +14,9 @@ import {
   Database, 
   BookOpen,
   GripVertical,
-  Download,
-  Upload,
   Edit3,
   Trash2,
   X,
-  Plus,
   ShieldCheck,
   AlertTriangle,
   Loader2,
@@ -39,7 +34,6 @@ import {
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [isInitialized, setIsInitialized] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
   const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis'>('clues');
@@ -160,26 +154,6 @@ const App: React.FC = () => {
     }
   }, [inputText]);
 
-  // Handler for AI-based story analysis
-  const handleAIAnalyze = async () => {
-    if (!inputText.trim()) return;
-    setIsAnalyzing(true);
-    try {
-      const partialUpdate = await analyzeMysteryText(inputText, state);
-      setState(prev => ({
-        ...prev,
-        ...partialUpdate
-      }));
-      setInputText('');
-      setStatusMessage("AI 分析完成");
-    } catch (e) {
-      console.error(e);
-      setErrorMessage("AI 分析执行出错，请检查网络或配置。");
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
-
   const handleConfirmDeleteCharacter = () => {
     if (!characterToDelete) return;
     const charId = characterToDelete.id;
@@ -258,13 +232,11 @@ const App: React.FC = () => {
         setShowExportModal(false);
         setStatusMessage("文件已关联并保存成功");
       } else {
-        // 环境不支持，直接下载
         triggerLegacyDownload(fallbackName);
       }
     } catch (err: any) {
       if (err.name === 'AbortError') return;
       console.warn("Modern Save As blocked or failed, falling back to legacy download.", err);
-      // 捕获到 SecurityError 或其他错误时，立即回退到传统下载
       triggerLegacyDownload(fallbackName);
     }
   };
@@ -287,7 +259,6 @@ const App: React.FC = () => {
       if (permission !== 'granted') {
         const request = await fileHandle.requestPermission(options);
         if (request !== 'granted') {
-          // 权限被拒，改用下载
           triggerLegacyDownload(fallbackName);
           return;
         }
@@ -302,7 +273,6 @@ const App: React.FC = () => {
       setStatusMessage("静默覆盖保存成功");
     } catch (err: any) {
       console.warn("Overwrite failed, falling back to standard save.", err);
-      // 遇到任何 API 级别的失败，回退到另存为逻辑
       await handleSaveAs();
     }
   };
@@ -346,7 +316,6 @@ const App: React.FC = () => {
     setShowExportModal(true);
   };
 
-  // Fallback handler for legacy <input type="file">
   const handleImportLegacy = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -405,7 +374,6 @@ const App: React.FC = () => {
               <span className="ml-2 text-sm font-normal text-slate-400 border-l border-slate-600 pl-2 uppercase tracking-widest">推理辅助</span>
             </h1>
             
-            {/* Status Messages */}
             <div className="ml-4 flex items-center gap-2">
               {statusMessage && (
                 <div className="flex items-center gap-2 text-xs font-bold text-green-400 bg-green-400/10 px-3 py-1 rounded-full border border-green-400/30 animate-in fade-in slide-in-from-left-2 shadow-[0_0_10px_rgba(34,197,94,0.1)]">
@@ -459,26 +427,18 @@ const App: React.FC = () => {
             </h2>
             <textarea
               className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 focus:ring-2 focus:ring-blue-500/50 resize-none outline-none font-mono"
-              placeholder="01. 赫尔克里·波洛 侦探&#10;或是粘贴一段故事剧情供 AI 深度分析..."
+              placeholder="请逐行输入人物信息...&#10;例如: 01. 赫尔克里·波洛 侦探"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
             />
-            <div className="grid grid-cols-2 gap-2 mt-4">
+            <div className="mt-4">
               <button
                 onClick={handleParseCharacters}
-                disabled={!inputText.trim() || isAnalyzing}
-                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all border border-slate-600"
+                disabled={!inputText.trim()}
+                className="w-full bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all border border-slate-600 shadow-md"
                 title="逐行解析角色"
               >
                 <Users size={16} /> 简单提取
-              </button>
-              <button
-                onClick={handleAIAnalyze}
-                disabled={!inputText.trim() || isAnalyzing}
-                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all shadow shadow-blue-900/30"
-                title="智能提取角色、关系、线索与不在场证明"
-              >
-                {isAnalyzing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} AI 深度分析
               </button>
             </div>
           </div>
@@ -633,7 +593,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Export Options Modal */}
       {showExportModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
@@ -663,7 +622,6 @@ const App: React.FC = () => {
               )}
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Overwrite Card */}
                 <button 
                   onClick={handleOverwrite}
                   className="flex flex-col items-center gap-4 p-6 bg-slate-900/50 border border-slate-700 rounded-2xl hover:border-blue-500 hover:bg-slate-700/50 transition-all group text-center"
@@ -679,7 +637,6 @@ const App: React.FC = () => {
                   </div>
                 </button>
 
-                {/* Save As New Card */}
                 <button 
                   onClick={handleSaveAs}
                   className="flex flex-col items-center gap-4 p-6 bg-slate-900/50 border border-slate-700 rounded-2xl hover:border-green-500 hover:bg-slate-700/50 transition-all group text-center"
@@ -706,10 +663,9 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Confirmation Modal for Character Deletion */}
       {characterToDelete && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200 overflow-hidden">
+          <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm animate-in zoom-in-95 duration-200 overflow-hidden">
             <div className="p-6 text-center">
               <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
                 <AlertTriangle className="text-red-500" size={32} />
@@ -717,7 +673,7 @@ const App: React.FC = () => {
               <h3 className="text-xl font-bold text-white mb-2">确认删除角色?</h3>
               <p className="text-slate-400 text-sm leading-relaxed mb-6">
                 你确定要删除角色 "<span className="text-red-400 font-bold">{characterToDelete.name}</span>" 吗？<br/>
-                相关的<span className="text-white">关系网、轨迹、不在场证明</span>记录也将被永久移除。此操作不可撤销。
+                相关的<span className="text-white">关系网、轨迹、不在场证明</span>记录也将被永久移除。
               </p>
               <div className="flex gap-3">
                 <button 
