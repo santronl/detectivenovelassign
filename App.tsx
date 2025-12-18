@@ -6,6 +6,9 @@ import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
 import AlibiMatrix from './components/AlibiMatrix';
 import MapCanvas from './components/MapCanvas';
+import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle } from './services/storage';
+// Import AI service logic
+import { analyzeMysteryText } from './services/geminiService';
 import { 
   Users, 
   Map as MapIcon, 
@@ -20,59 +23,114 @@ import {
   X,
   Plus,
   ShieldCheck,
-  AlertTriangle
+  AlertTriangle,
+  Loader2,
+  Save,
+  FilePlus,
+  RefreshCw,
+  FolderOpen,
+  CheckCircle2,
+  Link2,
+  Link2Off,
+  AlertCircle,
+  Info
 } from 'lucide-react';
 
-const WORKING_KEY = 'mystery_mind_working_v1';
-
 const App: React.FC = () => {
-  const [state, setState] = useState<AppState>(() => {
-    try {
-      const saved = localStorage.getItem(WORKING_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        return {
-          ...INITIAL_STATE,
-          ...parsed,
-          characters: parsed.characters || [],
-          relationships: parsed.relationships || [],
-          characterGroups: parsed.characterGroups || [],
-          clues: parsed.clues || [],
-          alibis: parsed.alibis || [],
-          maps: parsed.maps || INITIAL_STATE.maps,
-          spaces: parsed.spaces || [],
-          timePoints: parsed.timePoints || INITIAL_STATE.timePoints,
-          timelineData: parsed.timelineData || {},
-          graphActiveCharacterIds: parsed.graphActiveCharacterIds || [],
-          graphLayout: parsed.graphLayout || {}
-        };
-      }
-      return INITIAL_STATE;
-    } catch (e) {
-      console.error("Critical error loading working state:", e);
-      return INITIAL_STATE;
-    }
-  });
-
+  const [state, setState] = useState<AppState>(INITIAL_STATE);
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
   const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis'>('clues');
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
   const [characterToDelete, setCharacterToDelete] = useState<Character | null>(null);
-  const [storageError, setStorageError] = useState<string | null>(null);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  
+  // 检测是否处于 Iframe 环境
+  const isIframe = window.self !== window.top;
+  
+  // File System Access API Handle
+  const [fileHandle, setFileHandle] = useState<any | null>(null);
   
   const fileImportRef = useRef<HTMLInputElement>(null);
 
+  // Status message timer
   useEffect(() => {
-    try {
-      localStorage.setItem(WORKING_KEY, JSON.stringify(state));
-      if (storageError) setStorageError(null);
-    } catch (e) {
-      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
-        setStorageError("浏览器存储空间已满。这通常是因为上传的地图图片过大。请尝试使用较小的图片或清理数据。");
-      }
+    if (statusMessage) {
+      const timer = setTimeout(() => setStatusMessage(null), 4000);
+      return () => clearTimeout(timer);
     }
-  }, [state, storageError]);
+  }, [statusMessage]);
+
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
+
+  // Load state and file handle from IndexedDB on mount
+  useEffect(() => {
+    const initStorage = async () => {
+      try {
+        const saved = await loadFromIndexedDB();
+        const savedHandle = await loadFileHandle();
+        
+        if (saved) {
+          setState({
+            ...INITIAL_STATE,
+            ...saved,
+            characters: saved.characters || [],
+            relationships: saved.relationships || [],
+            clues: saved.clues || [],
+            alibis: saved.alibis || [],
+            lastFileName: saved.lastFileName || null
+          });
+        }
+        
+        // 尝试载入句柄（仅在非 iframe 且安全上下文中有效）
+        if (savedHandle && !isIframe) {
+          setFileHandle(savedHandle);
+        }
+      } catch (e) {
+        console.error("Failed to load from IndexedDB:", e);
+      } finally {
+        setIsInitialized(true);
+      }
+    };
+    initStorage();
+  }, [isIframe]);
+
+  // Save state to IndexedDB whenever it changes
+  useEffect(() => {
+    if (!isInitialized) return;
+    
+    const save = async () => {
+      try {
+        await saveToIndexedDB(state);
+      } catch (e) {
+        console.error("Failed to save state to IndexedDB:", e);
+      }
+    };
+    save();
+  }, [state, isInitialized]);
+
+  // Save file handle to IndexedDB whenever it changes
+  useEffect(() => {
+    if (!isInitialized || isIframe) return;
+    
+    const save = async () => {
+      try {
+        await saveFileHandle(fileHandle);
+      } catch (e) {
+        console.error("Failed to save file handle to IndexedDB:", e);
+      }
+    };
+    save();
+  }, [fileHandle, isInitialized, isIframe]);
 
   const handleAddAlibi = (alibi: Alibi) => {
     setState(prev => ({ ...prev, alibis: [...prev.alibis, alibi] }));
@@ -98,8 +156,29 @@ const App: React.FC = () => {
     if (newChars.length > 0) {
       setState(prev => ({ ...prev, characters: [...prev.characters, ...newChars] }));
       setInputText('');
+      setStatusMessage("人物解析成功");
     }
   }, [inputText]);
+
+  // Handler for AI-based story analysis
+  const handleAIAnalyze = async () => {
+    if (!inputText.trim()) return;
+    setIsAnalyzing(true);
+    try {
+      const partialUpdate = await analyzeMysteryText(inputText, state);
+      setState(prev => ({
+        ...prev,
+        ...partialUpdate
+      }));
+      setInputText('');
+      setStatusMessage("AI 分析完成");
+    } catch (e) {
+      console.error(e);
+      setErrorMessage("AI 分析执行出错，请检查网络或配置。");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   const handleConfirmDeleteCharacter = () => {
     if (!characterToDelete) return;
@@ -125,32 +204,171 @@ const App: React.FC = () => {
       };
     });
     setCharacterToDelete(null);
+    setStatusMessage("人物已删除");
+  };
+
+  // --- File System Access API Logic ---
+
+  /**
+   * Standard blob download fallback (Works in ALL environments)
+   */
+  const triggerLegacyDownload = (filename: string) => {
+    try {
+      const dataStr = JSON.stringify(state, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      setShowExportModal(false);
+      setStatusMessage("档案已成功下载 (兼容模式)");
+    } catch (e) {
+      console.error("Legacy download failed:", e);
+      setErrorMessage("浏览器下载组件异常");
+    }
+  };
+
+  /**
+   * Native "Save As" using showSaveFilePicker
+   */
+  const handleSaveAs = async () => {
+    const fallbackName = state.lastFileName || `mystery-mind-${new Date().toISOString().slice(0,10)}.json`;
+    
+    try {
+      if ('showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fallbackName,
+          types: [{
+            description: 'MysteryMind Archive',
+            accept: { 'application/json': ['.json'] },
+          }],
+        });
+        
+        const writable = await handle.createWritable();
+        const dataStr = JSON.stringify(state, null, 2);
+        await writable.write(dataStr);
+        await writable.close();
+        
+        setFileHandle(handle);
+        setState(prev => ({ ...prev, lastFileName: handle.name }));
+        setShowExportModal(false);
+        setStatusMessage("文件已关联并保存成功");
+      } else {
+        // 环境不支持，直接下载
+        triggerLegacyDownload(fallbackName);
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      console.warn("Modern Save As blocked or failed, falling back to legacy download.", err);
+      // 捕获到 SecurityError 或其他错误时，立即回退到传统下载
+      triggerLegacyDownload(fallbackName);
+    }
+  };
+
+  /**
+   * Performs silent overwrite if handle exists.
+   */
+  const handleOverwrite = async () => {
+    const fallbackName = state.lastFileName || 'mystery_archive.json';
+    
+    if (!fileHandle || isIframe) {
+      await handleSaveAs();
+      return;
+    }
+
+    try {
+      const options = { mode: 'readwrite' };
+      const permission = await fileHandle.queryPermission(options);
+      
+      if (permission !== 'granted') {
+        const request = await fileHandle.requestPermission(options);
+        if (request !== 'granted') {
+          // 权限被拒，改用下载
+          triggerLegacyDownload(fallbackName);
+          return;
+        }
+      }
+
+      const writable = await fileHandle.createWritable();
+      const dataStr = JSON.stringify(state, null, 2);
+      await writable.write(dataStr);
+      await writable.close();
+      
+      setShowExportModal(false);
+      setStatusMessage("静默覆盖保存成功");
+    } catch (err: any) {
+      console.warn("Overwrite failed, falling back to standard save.", err);
+      // 遇到任何 API 级别的失败，回退到另存为逻辑
+      await handleSaveAs();
+    }
+  };
+
+  /**
+   * Modern Import using showOpenFilePicker
+   */
+  const handleOpenFile = async () => {
+    try {
+      if ('showOpenFilePicker' in window && window.isSecureContext && !isIframe) {
+        const [handle] = await (window as any).showOpenFilePicker({
+          types: [{
+            description: 'MysteryMind Archive',
+            accept: { 'application/json': ['.json'] },
+          }],
+          multiple: false
+        });
+        
+        const file = await handle.getFile();
+        const content = await file.text();
+        const parsed = JSON.parse(content);
+        
+        setFileHandle(handle);
+        setState({ 
+          ...INITIAL_STATE, 
+          ...parsed, 
+          lastFileName: handle.name 
+        });
+        setStatusMessage(`已建立文件关联: ${handle.name}`);
+      } else {
+        fileImportRef.current?.click();
+      }
+    } catch (err: any) {
+      if (err.name === 'AbortError') return;
+      console.warn("Modern OpenFile blocked or failed, using legacy input.", err);
+      fileImportRef.current?.click();
+    }
   };
 
   const handleExportData = () => {
-    const dataStr = JSON.stringify(state, null, 2);
-    const blob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `mystery-mind-full-${new Date().toISOString().slice(0,10)}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    setShowExportModal(true);
   };
 
-  const handleImportData = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Fallback handler for legacy <input type="file">
+  const handleImportLegacy = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const fileName = file.name;
     const reader = new FileReader();
     reader.onload = (ev) => {
       try {
         const parsed = JSON.parse(ev.target?.result as string);
-        setState({ ...INITIAL_STATE, ...parsed });
+        setFileHandle(null); 
+        setState({ 
+          ...INITIAL_STATE, 
+          ...parsed, 
+          lastFileName: fileName 
+        });
+        setStatusMessage(`导入成功 (受限于当前浏览器环境，未建立持久关联)`);
       } catch (err) {
         console.error("Import failed", err);
+        setErrorMessage("导入失败，请检查文件格式。");
       }
     };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleAddRelationship = (source: string, target: string, relation: string) => {
@@ -162,6 +380,17 @@ const App: React.FC = () => {
       return { ...prev, relationships: newRels };
     });
   };
+
+  if (!isInitialized) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="animate-spin text-blue-500" size={48} />
+          <p className="animate-pulse font-medium tracking-widest uppercase text-xs">正在连接思维数据库...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans selection:bg-blue-500/30">
@@ -175,52 +404,83 @@ const App: React.FC = () => {
               Mystery<span className="text-blue-500">Mind</span>
               <span className="ml-2 text-sm font-normal text-slate-400 border-l border-slate-600 pl-2 uppercase tracking-widest">推理辅助</span>
             </h1>
+            
+            {/* Status Messages */}
+            <div className="ml-4 flex items-center gap-2">
+              {statusMessage && (
+                <div className="flex items-center gap-2 text-xs font-bold text-green-400 bg-green-400/10 px-3 py-1 rounded-full border border-green-400/30 animate-in fade-in slide-in-from-left-2 shadow-[0_0_10px_rgba(34,197,94,0.1)]">
+                  <CheckCircle2 size={12} />
+                  {statusMessage}
+                </div>
+              )}
+              {errorMessage && (
+                <div className="flex items-center gap-2 text-xs font-bold text-red-400 bg-red-400/10 px-3 py-1 rounded-full border border-red-400/30 animate-in shake-in duration-300 shadow-[0_0_10px_rgba(239,68,68,0.1)]">
+                  <AlertCircle size={12} />
+                  {errorMessage}
+                </div>
+              )}
+            </div>
           </div>
           
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <input type="file" ref={fileImportRef} onChange={handleImportData} accept=".json" className="hidden" />
-              <button onClick={() => fileImportRef.current?.click()} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white transition-colors" title="导入存档文件">
-                <Upload size={18} />
-                <span className="text-sm font-medium">导入</span>
+              <div className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${fileHandle ? 'bg-green-900/20 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
+                 {fileHandle ? <Link2 size={12}/> : <Link2Off size={12}/>}
+                 {fileHandle ? '已关联本地文件' : isIframe ? '沙盒环境受限' : '未关联文件'}
+              </div>
+              <input type="file" ref={fileImportRef} onChange={handleImportLegacy} accept=".json" className="hidden" />
+              <button 
+                onClick={handleOpenFile} 
+                className="flex items-center gap-2 p-2 text-slate-400 hover:text-white transition-colors group" 
+                title="打开存档文件"
+              >
+                <FolderOpen size={18} className="group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-medium">打开</span>
               </button>
-              <button onClick={handleExportData} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white transition-colors" title="导出存档文件">
-                <Download size={18} />
-                <span className="text-sm font-medium">导出</span>
+              <button 
+                onClick={handleExportData} 
+                className="flex items-center gap-2 p-2 text-slate-400 hover:text-white transition-colors group" 
+                title="保存或导出存档"
+              >
+                <Save size={18} className="group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-medium">保存</span>
               </button>
             </div>
           </div>
         </div>
       </header>
 
-      {storageError && (
-        <div className="bg-amber-900/50 border-b border-amber-500/30 text-amber-200 px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-300">
-          <AlertTriangle size={18} className="shrink-0" />
-          <p className="text-sm font-medium">{storageError}</p>
-          <button onClick={() => setStorageError(null)} className="ml-2 text-amber-500 hover:text-white"><X size={16}/></button>
-        </div>
-      )}
-
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg">
             <h2 className="font-bold text-white flex items-center gap-2 mb-4">
               <Database size={18} className="text-blue-400" />
-              人物批量导入
+              数据批量提取
             </h2>
             <textarea
               className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 focus:ring-2 focus:ring-blue-500/50 resize-none outline-none font-mono"
-              placeholder="01. 赫尔克里·波洛 侦探&#10;02. 阿瑟·黑斯廷斯 助手"
+              placeholder="01. 赫尔克里·波洛 侦探&#10;或是粘贴一段故事剧情供 AI 深度分析..."
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
             />
-            <button
-              onClick={handleParseCharacters}
-              disabled={!inputText.trim()}
-              className="w-full mt-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all"
-            >
-              <Users size={16} /> 解析并添加
-            </button>
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button
+                onClick={handleParseCharacters}
+                disabled={!inputText.trim() || isAnalyzing}
+                className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all border border-slate-600"
+                title="逐行解析角色"
+              >
+                <Users size={16} /> 简单提取
+              </button>
+              <button
+                onClick={handleAIAnalyze}
+                disabled={!inputText.trim() || isAnalyzing}
+                className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all shadow shadow-blue-900/30"
+                title="智能提取角色、关系、线索与不在场证明"
+              >
+                {isAnalyzing ? <Loader2 className="animate-spin" size={16} /> : <RefreshCw size={16} />} AI 深度分析
+              </button>
+            </div>
           </div>
 
           <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col max-h-[500px]">
@@ -372,6 +632,79 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Export Options Modal */}
+      {showExportModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
+          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-white flex items-center gap-3">
+                <Save className="text-blue-400" size={24} />
+                导出/保存档案
+              </h3>
+              <button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white transition-colors">
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="p-8 space-y-6">
+              <p className="text-slate-400 text-sm leading-relaxed">
+                系统检测到您当前正基于 <span className="text-blue-300 font-mono italic">"{state.lastFileName || '新建文档'}"</span> 进行编辑。
+                请选择如何保存您的推理记录：
+              </p>
+              
+              {isIframe && (
+                <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-2xl text-yellow-200/80 text-xs leading-relaxed">
+                  <Info className="shrink-0 text-yellow-500" size={18} />
+                  <p>
+                    当前检测到您正在<strong>跨域沙盒环境</strong>中浏览。受浏览器安全策略限制，系统无法直接修改您的本地磁盘文件。点击下方按钮将触发标准“下载”操作。
+                  </p>
+                </div>
+              )}
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {/* Overwrite Card */}
+                <button 
+                  onClick={handleOverwrite}
+                  className="flex flex-col items-center gap-4 p-6 bg-slate-900/50 border border-slate-700 rounded-2xl hover:border-blue-500 hover:bg-slate-700/50 transition-all group text-center"
+                >
+                  <div className="p-4 bg-blue-900/30 rounded-full text-blue-400 group-hover:scale-110 transition-transform">
+                    <RefreshCw size={32} />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="block font-bold text-white">直接覆盖保存</span>
+                    <span className="block text-[10px] text-slate-500 truncate max-w-[140px]">
+                      {fileHandle && !isIframe ? '静默写入源文件' : '导出下载'}
+                    </span>
+                  </div>
+                </button>
+
+                {/* Save As New Card */}
+                <button 
+                  onClick={handleSaveAs}
+                  className="flex flex-col items-center gap-4 p-6 bg-slate-900/50 border border-slate-700 rounded-2xl hover:border-green-500 hover:bg-slate-700/50 transition-all group text-center"
+                >
+                  <div className="p-4 bg-green-900/30 rounded-full text-green-400 group-hover:scale-110 transition-transform">
+                    <FilePlus size={32} />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="block font-bold text-white">另存为新档案</span>
+                    <span className="block text-[10px] text-slate-500">
+                      创建副本或选取新位置
+                    </span>
+                  </div>
+                </button>
+              </div>
+            </div>
+
+            <div className="px-8 py-4 bg-slate-900/50 text-center">
+              <p className="text-[10px] text-slate-500 italic">
+                {fileHandle && !isIframe ? '当前已建立文件关联，支持直接覆盖。' : '提示：由于环境限制，所有保存操作将作为文件下载处理。'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal for Character Deletion */}
       {characterToDelete && (

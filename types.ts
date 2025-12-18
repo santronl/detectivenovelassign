@@ -36,7 +36,6 @@ export interface Clue {
   description?: string;
 }
 
-// Added missing Alibi interface
 export interface Alibi {
   character_id: string;
   time_period: string;
@@ -50,7 +49,6 @@ export interface Point {
   y: number;
 }
 
-// Support multiple maps
 export interface MapDoc {
   id: string;
   name: string;
@@ -67,14 +65,12 @@ export interface Space {
   note?: string; // Annotation for the scene details
 }
 
-// Timeline Management
 export interface TimePoint {
   id: string;
   label: string; // e.g. "12:00", "案发时"
   order: number;
 }
 
-// Character location at a specific time
 export interface CharacterPlacement {
   characterId: string;
   mapId: string;
@@ -82,41 +78,39 @@ export interface CharacterPlacement {
   y: number; // percentage
 }
 
-// Map: TimePointId -> [CharacterPlacement]
 export type TimelineData = Record<string, CharacterPlacement[]>;
 
 export interface AppState {
   characters: Character[];
   relationships: Relationship[];
   relationshipDefs: RelationshipDef[];
-  characterGroups: CharacterGroup[]; // New: Groups/Circles
+  characterGroups: CharacterGroup[];
   clues: Clue[];
-  // Added alibis to AppState
   alibis: Alibi[];
   
-  // Map & Timeline State
   maps: MapDoc[];
   spaces: Space[];
   timePoints: TimePoint[];
-  timelineData: TimelineData; // Locations of characters at specific times
+  timelineData: TimelineData;
   
-  // UI Selection State
   currentMapId: string;
   currentTimeId: string;
   graphActiveCharacterIds: string[];
 
-  // Graph Layout Persistence
   graphLayout: Record<string, { x: number; y: number }>;
+  
+  // Persistence Tracking
+  lastFileName: string | null;
 }
 
 export const INITIAL_STATE: AppState = {
   characters: [],
   relationships: [],
   relationshipDefs: [
-    { id: '1', label: '仇敌', color: '#ef4444' }, // Red
-    { id: '2', label: '盟友', color: '#22c55e' }, // Green
-    { id: '3', label: '亲属', color: '#3b82f6' }, // Blue
-    { id: '4', label: '普通', color: '#94a3b8' }, // Slate
+    { id: '1', label: '仇敌', color: '#ef4444' },
+    { id: '2', label: '盟友', color: '#22c55e' },
+    { id: '3', label: '亲属', color: '#3b82f6' },
+    { id: '4', label: '普通', color: '#94a3b8' },
   ],
   characterGroups: [],
   clues: [],
@@ -130,5 +124,6 @@ export const INITIAL_STATE: AppState = {
   currentMapId: 'default',
   currentTimeId: 't1',
   graphActiveCharacterIds: [],
-  graphLayout: {}
+  graphLayout: {},
+  lastFileName: null
 };
