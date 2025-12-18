@@ -22,25 +22,23 @@ import {
   Plus,
   FolderOpen,
   Clock,
-  ShieldCheck
+  ShieldCheck,
+  AlertTriangle
 } from 'lucide-react';
 
 const WORKING_KEY = 'mystery_mind_working_v1';
 const SLOTS_KEY = 'mystery_mind_slots_v1';
 
-// Unified ID Generator
 const generateId = () => {
   return crypto.randomUUID();
 };
 
 const App: React.FC = () => {
-  // Main State with Defensive Merging to prevent crashes on old saves
   const [state, setState] = useState<AppState>(() => {
     try {
       const saved = localStorage.getItem(WORKING_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // Ensure all required arrays/objects exist to prevent runtime errors
         return {
           ...INITIAL_STATE,
           ...parsed,
@@ -64,7 +62,6 @@ const App: React.FC = () => {
     }
   });
 
-  // Save Slots State
   const [saveSlots, setSaveSlots] = useState<SaveSlot[]>(() => {
     try {
       const saved = localStorage.getItem(SLOTS_KEY);
@@ -78,22 +75,20 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
   const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis'>('clues');
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
+  const [characterToDelete, setCharacterToDelete] = useState<Character | null>(null);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [newSaveName, setNewSaveName] = useState('');
   
   const fileImportRef = useRef<HTMLInputElement>(null);
 
-  // Auto-save working state
   useEffect(() => {
     localStorage.setItem(WORKING_KEY, JSON.stringify(state));
   }, [state]);
 
-  // Sync slots to local storage
   useEffect(() => {
     localStorage.setItem(SLOTS_KEY, JSON.stringify(saveSlots));
   }, [saveSlots]);
 
-  // --- Save Management Handlers ---
   const handleCreateNewSave = () => {
     if (!newSaveName.trim()) return;
     const newSlot: SaveSlot = {
@@ -104,43 +99,32 @@ const App: React.FC = () => {
     };
     setSaveSlots(prev => [newSlot, ...prev]);
     setNewSaveName('');
-    alert('新存档已创建');
   };
 
   const handleOverwriteSave = (slotId: string) => {
     const slot = saveSlots.find(s => s.id === slotId);
     if (!slot) return;
-    if (confirm(`确定要覆盖存档 "${slot.name}" 吗？`)) {
-      setSaveSlots(prev => prev.map(s => s.id === slotId ? { ...s, timestamp: Date.now(), data: state } : s));
-      alert('存档已更新');
-    }
+    setSaveSlots(prev => prev.map(s => s.id === slotId ? { ...s, timestamp: Date.now(), data: state } : s));
   };
 
   const handleLoadSave = (slotId: string) => {
     const slot = saveSlots.find(s => s.id === slotId);
     if (!slot) return;
-    if (confirm(`读取存档 "${slot.name}" 会覆盖当前未保存的进度，确定吗？`)) {
-      // Deep merge for safety during load
-      setState({
-        ...INITIAL_STATE,
-        ...slot.data,
-        characters: slot.data.characters || [],
-        clues: slot.data.clues || [],
-        alibis: slot.data.alibis || [],
-        characterGroups: slot.data.characterGroups || []
-      });
-      setIsSaveModalOpen(false);
-      alert('存档读取成功');
-    }
+    setState({
+      ...INITIAL_STATE,
+      ...slot.data,
+      characters: slot.data.characters || [],
+      clues: slot.data.clues || [],
+      alibis: slot.data.alibis || [],
+      characterGroups: slot.data.characterGroups || []
+    });
+    setIsSaveModalOpen(false);
   };
 
   const handleDeleteSave = (slotId: string) => {
-    if (confirm('确定要删除这个存档吗？此操作不可撤销。')) {
-      setSaveSlots(prev => prev.filter(s => s.id !== slotId));
-    }
+    setSaveSlots(prev => prev.filter(s => s.id !== slotId));
   };
 
-  // --- Alibi Handlers ---
   const handleAddAlibi = (alibi: Alibi) => {
     setState(prev => ({ ...prev, alibis: [...prev.alibis, alibi] }));
   };
@@ -154,24 +138,45 @@ const App: React.FC = () => {
   };
 
   const handleDeleteAlibi = (index: number) => {
-    if (confirm("确定要删除这条不在场证明吗？")) {
-      setState(prev => ({
-        ...prev,
-        alibis: prev.alibis.filter((_, i) => i !== index)
-      }));
-    }
+    setState(prev => ({
+      ...prev,
+      alibis: prev.alibis.filter((_, i) => i !== index)
+    }));
   };
 
-  // --- Character Handlers ---
   const handleParseCharacters = useCallback(() => {
     const newChars = parseCharacterList(inputText);
     if (newChars.length > 0) {
       setState(prev => ({ ...prev, characters: [...prev.characters, ...newChars] }));
       setInputText('');
-    } else {
-      alert('格式错误，请检查输入。格式应为: "01. 姓名 描述"');
     }
   }, [inputText]);
+
+  const handleConfirmDeleteCharacter = () => {
+    if (!characterToDelete) return;
+    const charId = characterToDelete.id;
+
+    setState(prev => {
+      const updatedTimelineData = { ...prev.timelineData };
+      Object.keys(updatedTimelineData).forEach(timeId => {
+        updatedTimelineData[timeId] = updatedTimelineData[timeId].filter(p => p.characterId !== charId);
+      });
+
+      return {
+        ...prev,
+        characters: prev.characters.filter(c => c.id !== charId),
+        relationships: prev.relationships.filter(r => r.source !== charId && r.target !== charId),
+        graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(id => id !== charId),
+        characterGroups: prev.characterGroups.map(g => ({
+          ...g,
+          characterIds: g.characterIds.filter(id => id !== charId)
+        })).filter(g => g.characterIds.length > 0),
+        alibis: prev.alibis.filter(a => a.character_id !== charId),
+        timelineData: updatedTimelineData
+      };
+    });
+    setCharacterToDelete(null);
+  };
 
   const handleExportData = () => {
     const dataStr = JSON.stringify(state, null, 2);
@@ -191,11 +196,9 @@ const App: React.FC = () => {
     reader.onload = (ev) => {
       try {
         const parsed = JSON.parse(ev.target?.result as string);
-        if (confirm("导入将覆盖当前进度，确定继续吗？")) {
-          setState({ ...INITIAL_STATE, ...parsed });
-        }
+        setState({ ...INITIAL_STATE, ...parsed });
       } catch (err) {
-        alert("无效的存档文件");
+        console.error("Import failed", err);
       }
     };
     reader.readAsText(file);
@@ -213,7 +216,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans selection:bg-blue-500/30">
-      {/* Header */}
       <header className="border-b border-slate-700 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -244,7 +246,6 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Col: Character Sidebar */}
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg">
             <h2 className="font-bold text-white flex items-center gap-2 mb-4">
@@ -288,7 +289,20 @@ const App: React.FC = () => {
                       <GripVertical size={14} className="text-slate-500 shrink-0" />
                       <span className="text-sm font-medium text-blue-300 truncate cursor-pointer hover:underline" onClick={() => setEditingCharacter(char)}>{char.name}</span>
                     </div>
-                    <button onClick={() => setEditingCharacter(char)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-white transition-opacity"><Edit3 size={14}/></button>
+                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setEditingCharacter(char); }} 
+                        className="p-1 text-slate-400 hover:text-white" title="编辑详情"
+                      >
+                        <Edit3 size={14}/>
+                      </button>
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); setCharacterToDelete(char); }} 
+                        className="p-1 text-slate-400 hover:text-red-400" title="删除人物"
+                      >
+                        <Trash2 size={14}/>
+                      </button>
+                    </div>
                   </div>
                 ))
               )}
@@ -296,7 +310,6 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Col: Main Content Tabs */}
         <div className="lg:col-span-8 space-y-6">
           <div className="flex border-b border-slate-700 gap-2">
             {[
@@ -387,7 +400,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Save Management Modal */}
       {isSaveModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
           <div className="bg-slate-800 rounded-2xl border border-slate-600 shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 overflow-hidden">
@@ -400,7 +412,6 @@ const App: React.FC = () => {
             </div>
 
             <div className="p-6 flex-1 overflow-y-auto space-y-6 custom-scrollbar">
-              {/* New Save Form */}
               <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
                 <h3 className="text-sm font-bold text-slate-400 mb-3 flex items-center gap-2">
                   <Plus size={16} /> 创建新存档槽位
@@ -422,7 +433,6 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Slot List */}
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-slate-400 mb-2 flex items-center gap-2">
                   <FolderOpen size={16} /> 已保存的记录
@@ -476,7 +486,38 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* Character Edit Modal */}
+      {/* Confirmation Modal for Character Deletion */}
+      {characterToDelete && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200 overflow-hidden">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+                <AlertTriangle className="text-red-500" size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">确认删除角色?</h3>
+              <p className="text-slate-400 text-sm leading-relaxed mb-6">
+                你确定要删除角色 "<span className="text-red-400 font-bold">{characterToDelete.name}</span>" 吗？<br/>
+                相关的<span className="text-white">关系网、轨迹、不在场证明</span>记录也将被永久移除。此操作不可撤销。
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setCharacterToDelete(null)}
+                  className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleConfirmDeleteCharacter}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95"
+                >
+                  确认删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editingCharacter && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
           <div className="bg-slate-800 rounded-xl border border-slate-600 w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
