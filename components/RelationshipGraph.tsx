@@ -59,12 +59,15 @@ const RelationshipGraph: React.FC<Props> = ({
   const getDefByLabel = (label: string) => relationshipDefs.find(d => d.label === label);
   const getActiveDef = () => relationshipDefs.find(d => d.id === activeDefId);
 
+  // Helper for random Hex color
+  const generateRandomHex = () => '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
+
   // Helper to add new def
   const handleAddDef = () => {
     const newDef: RelationshipDef = {
         id: crypto.randomUUID(),
         label: '新关系',
-        color: `#${Math.floor(Math.random()*16777215).toString(16)}`
+        color: generateRandomHex()
     };
     onUpdateDefs([...relationshipDefs, newDef]);
     setActiveDefId(newDef.id);
@@ -86,7 +89,7 @@ const RelationshipGraph: React.FC<Props> = ({
               id: crypto.randomUUID(),
               label: newGroupLabel.trim(),
               characterIds: Array.from(selectedForGroup),
-              color: `hsl(${Math.random() * 360}, 70%, 80%)` // Pastel color
+              color: generateRandomHex()
           });
           setNewGroupLabel("");
           setSelectedForGroup(new Set());
@@ -237,8 +240,6 @@ const RelationshipGraph: React.FC<Props> = ({
                 // Draw pill or just a wide line
                 const [p1, p2] = points;
                 centroid = { x: (p1[0]+p2[0])/2, y: (p1[1]+p2[1])/2 };
-                // Simple hull fallback for 2 points doesn't exist in d3.polygonHull, so manual:
-                // We'll rely on the visual "stroke-width" trick.
                 pathData = `M ${p1[0]},${p1[1]} L ${p2[0]},${p2[1]}`;
             } else {
                 const hull = d3.polygonHull(points);
@@ -283,13 +284,13 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("x", (d: any) => d.centroid.x)
             .attr("y", (d: any) => d.centroid.y)
             .attr("text-anchor", "middle")
-            .attr("dy", (d: any) => d.pointCount > 2 ? 0 : -45) // Push label up if it's a single/double node group so it doesn't overlap node
+            .attr("dy", (d: any) => d.pointCount > 2 ? 0 : -45) 
             .attr("font-size", "14px")
             .attr("font-weight", "bold")
             .attr("fill", (d: any) => d.color)
             .style("text-shadow", "0px 1px 2px black")
             .style("cursor", "pointer")
-            .style("pointer-events", "all") // Enable clicks on text
+            .style("pointer-events", "all") 
             .on("click", (e, d: any) => {
                 e.stopPropagation();
                 if (mode === 'delete') {
@@ -297,7 +298,6 @@ const RelationshipGraph: React.FC<Props> = ({
                         onRemoveGroup(d.id);
                     }
                 } else {
-                    // Open Edit Modal
                     setEditingGroup(d);
                 }
             });
@@ -362,7 +362,6 @@ const RelationshipGraph: React.FC<Props> = ({
                     containerRef.current?.dispatchEvent(new CustomEvent('node-click', { detail: { id: d.id } }));
                 } else if (mode === 'group') {
                     event.stopPropagation();
-                    // Toggle selection logic
                     setSelectedForGroup(prev => {
                         const next = new Set(prev);
                         if (next.has(d.id)) next.delete(d.id);
@@ -378,7 +377,7 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("r", 20)
             .attr("fill", "#1e293b") 
             .attr("stroke", (d: any) => {
-                if (mode === 'group' && selectedForGroup.has(d.id)) return '#facc15'; // Yellow selection
+                if (mode === 'group' && selectedForGroup.has(d.id)) return '#facc15'; 
                 if (d.id === selectedSource) return '#ef4444';
                 return '#3b82f6';
             })
@@ -502,7 +501,6 @@ const RelationshipGraph: React.FC<Props> = ({
                     )}
                 </div>
             )}
-            {/* Move Mode Hint */}
             {mode === 'move' && characterGroups.length > 0 && (
                  <div className="absolute top-4 left-4 bg-slate-900/50 backdrop-blur px-3 py-1.5 rounded-full border border-slate-700 text-slate-400 text-xs pointer-events-none">
                     提示: 点击分组标签可管理成员

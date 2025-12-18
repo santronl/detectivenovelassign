@@ -45,13 +45,6 @@ export interface Alibi {
   details?: string;
 }
 
-export interface SaveSlot {
-  id: string;
-  name: string;
-  timestamp: number;
-  data: AppState;
-}
-
 export interface Point {
   x: number;
   y: number;

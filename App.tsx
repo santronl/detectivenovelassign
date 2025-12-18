@@ -1,6 +1,7 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { parseCharacterList } from './utils/parser';
-import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue, CharacterGroup, SaveSlot, Alibi } from './types';
+import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue, CharacterGroup, Alibi } from './types';
 import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
 import AlibiMatrix from './components/AlibiMatrix';
@@ -14,24 +15,15 @@ import {
   GripVertical,
   Download,
   Upload,
-  Save,
   Edit3,
   Trash2,
   X,
-  Archive,
   Plus,
-  FolderOpen,
-  Clock,
   ShieldCheck,
   AlertTriangle
 } from 'lucide-react';
 
 const WORKING_KEY = 'mystery_mind_working_v1';
-const SLOTS_KEY = 'mystery_mind_slots_v1';
-
-const generateId = () => {
-  return crypto.randomUUID();
-};
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(() => {
@@ -62,68 +54,25 @@ const App: React.FC = () => {
     }
   });
 
-  const [saveSlots, setSaveSlots] = useState<SaveSlot[]>(() => {
-    try {
-      const saved = localStorage.getItem(SLOTS_KEY);
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
   const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis'>('clues');
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
   const [characterToDelete, setCharacterToDelete] = useState<Character | null>(null);
-  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
-  const [newSaveName, setNewSaveName] = useState('');
+  const [storageError, setStorageError] = useState<string | null>(null);
   
   const fileImportRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    localStorage.setItem(WORKING_KEY, JSON.stringify(state));
-  }, [state]);
-
-  useEffect(() => {
-    localStorage.setItem(SLOTS_KEY, JSON.stringify(saveSlots));
-  }, [saveSlots]);
-
-  const handleCreateNewSave = () => {
-    if (!newSaveName.trim()) return;
-    const newSlot: SaveSlot = {
-      id: generateId(),
-      name: newSaveName.trim(),
-      timestamp: Date.now(),
-      data: state
-    };
-    setSaveSlots(prev => [newSlot, ...prev]);
-    setNewSaveName('');
-  };
-
-  const handleOverwriteSave = (slotId: string) => {
-    const slot = saveSlots.find(s => s.id === slotId);
-    if (!slot) return;
-    setSaveSlots(prev => prev.map(s => s.id === slotId ? { ...s, timestamp: Date.now(), data: state } : s));
-  };
-
-  const handleLoadSave = (slotId: string) => {
-    const slot = saveSlots.find(s => s.id === slotId);
-    if (!slot) return;
-    setState({
-      ...INITIAL_STATE,
-      ...slot.data,
-      characters: slot.data.characters || [],
-      clues: slot.data.clues || [],
-      alibis: slot.data.alibis || [],
-      characterGroups: slot.data.characterGroups || []
-    });
-    setIsSaveModalOpen(false);
-  };
-
-  const handleDeleteSave = (slotId: string) => {
-    setSaveSlots(prev => prev.filter(s => s.id !== slotId));
-  };
+    try {
+      localStorage.setItem(WORKING_KEY, JSON.stringify(state));
+      if (storageError) setStorageError(null);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+        setStorageError("浏览器存储空间已满。这通常是因为上传的地图图片过大。请尝试使用较小的图片或清理数据。");
+      }
+    }
+  }, [state, storageError]);
 
   const handleAddAlibi = (alibi: Alibi) => {
     setState(prev => ({ ...prev, alibis: [...prev.alibis, alibi] }));
@@ -229,21 +178,28 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex items-center gap-4">
-            <button 
-              onClick={() => setIsSaveModalOpen(true)}
-              className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-200 px-4 py-2 rounded-lg text-sm font-medium border border-slate-700 transition-all active:scale-95"
-            >
-              <Archive size={16} className="text-blue-400" />
-              存档中心
-            </button>
-            <div className="flex items-center gap-2 border-l border-slate-700 pl-4">
+            <div className="flex items-center gap-2">
               <input type="file" ref={fileImportRef} onChange={handleImportData} accept=".json" className="hidden" />
-              <button onClick={() => fileImportRef.current?.click()} className="p-2 text-slate-400 hover:text-white" title="从文件读取存档"><Upload size={18} /></button>
-              <button onClick={handleExportData} className="p-2 text-slate-400 hover:text-white" title="导出到文件"><Download size={18} /></button>
+              <button onClick={() => fileImportRef.current?.click()} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white transition-colors" title="导入存档文件">
+                <Upload size={18} />
+                <span className="text-sm font-medium">导入</span>
+              </button>
+              <button onClick={handleExportData} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white transition-colors" title="导出存档文件">
+                <Download size={18} />
+                <span className="text-sm font-medium">导出</span>
+              </button>
             </div>
           </div>
         </div>
       </header>
+
+      {storageError && (
+        <div className="bg-amber-900/50 border-b border-amber-500/30 text-amber-200 px-4 py-2 flex items-center justify-center gap-3 animate-in slide-in-from-top duration-300">
+          <AlertTriangle size={18} className="shrink-0" />
+          <p className="text-sm font-medium">{storageError}</p>
+          <button onClick={() => setStorageError(null)} className="ml-2 text-amber-500 hover:text-white"><X size={16}/></button>
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6">
@@ -405,7 +361,7 @@ const App: React.FC = () => {
                 maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces}
                 timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} characters={state.characters}
                 onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))}
-                onCreateMap={n => { const id = generateId(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }}
+                onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }}
                 onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))}
                 onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))}
                 onUpdateTimePoints={p => setState(prev => ({ ...prev, timePoints: p }))}
@@ -416,92 +372,6 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
-
-      {isSaveModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-800 rounded-2xl border border-slate-600 shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 overflow-hidden">
-            <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-              <h2 className="text-xl font-bold text-white flex items-center gap-3">
-                <Archive size={24} className="text-blue-400" />
-                存档管理器
-              </h2>
-              <button onClick={() => setIsSaveModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={24} /></button>
-            </div>
-
-            <div className="p-6 flex-1 overflow-y-auto space-y-6 custom-scrollbar">
-              <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
-                <h3 className="text-sm font-bold text-slate-400 mb-3 flex items-center gap-2">
-                  <Plus size={16} /> 创建新存档槽位
-                </h3>
-                <div className="flex gap-2">
-                  <input 
-                    value={newSaveName}
-                    onChange={e => setNewSaveName(e.target.value)}
-                    placeholder="输入存档描述 (如: 第三章结束)"
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  />
-                  <button 
-                    onClick={handleCreateNewSave}
-                    disabled={!newSaveName.trim()}
-                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
-                  >
-                    <Save size={18} /> 保存进度
-                  </button>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h3 className="text-sm font-bold text-slate-400 mb-2 flex items-center gap-2">
-                  <FolderOpen size={16} /> 已保存的记录
-                </h3>
-                {saveSlots.length === 0 ? (
-                  <div className="text-center py-12 text-slate-600 border-2 border-dashed border-slate-700 rounded-xl">
-                    尚未发现本地存档记录
-                  </div>
-                ) : (
-                  saveSlots.map(slot => (
-                    <div key={slot.id} className="bg-slate-800 border border-slate-700 p-4 rounded-xl flex items-center justify-between group hover:border-slate-500 transition-all">
-                      <div className="flex-1 min-w-0 pr-4">
-                        <h4 className="font-bold text-blue-300 truncate">{slot.name}</h4>
-                        <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
-                          <span className="flex items-center gap-1"><Clock size={12}/> {new Date(slot.timestamp).toLocaleString()}</span>
-                          <span>{slot.data.characters.length} 角色</span>
-                          <span>{slot.data.clues.length} 证物</span>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => handleLoadSave(slot.id)}
-                          className="px-3 py-1.5 bg-slate-700 hover:bg-blue-600 text-white rounded-lg text-xs font-bold transition-colors"
-                        >
-                          读取
-                        </button>
-                        <button 
-                          onClick={() => handleOverwriteSave(slot.id)}
-                          className="px-3 py-1.5 bg-slate-700 hover:bg-yellow-600 text-white rounded-lg text-xs font-bold transition-colors"
-                          title="使用当前状态覆盖此存档"
-                        >
-                          覆盖
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteSave(slot.id)}
-                          className="p-1.5 text-slate-500 hover:text-red-400 transition-colors"
-                        >
-                          <Trash2 size={18} />
-                        </button>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="p-4 border-t border-slate-700 bg-slate-900/30 text-center">
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Storage: Browser Local Cache</p>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Confirmation Modal for Character Deletion */}
       {characterToDelete && (
@@ -569,7 +439,7 @@ const App: React.FC = () => {
                     className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none" 
                     value={editingCharacter.note || ''} 
                     onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})}
-                    placeholder="在此输入关于该角色的线索、动机或疑点..."
+                    placeholder="在此输入关于该角色的线索、动机 or 疑点..."
                 />
               </div>
               <div className="flex justify-end gap-3 pt-2">
