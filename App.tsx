@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { parseCharacterList } from './utils/parser';
-import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue, CharacterGroup, SaveSlot } from './types';
+import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue, CharacterGroup, SaveSlot, Alibi } from './types';
 import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
-import MapVisualizer from './components/MapVisualizer';
+import AlibiMatrix from './components/AlibiMatrix';
 import MapCanvas from './components/MapCanvas';
 import { 
   Users, 
@@ -21,27 +21,45 @@ import {
   Archive,
   Plus,
   FolderOpen,
-  Clock
+  Clock,
+  ShieldCheck
 } from 'lucide-react';
 
 const WORKING_KEY = 'mystery_mind_working_v1';
 const SLOTS_KEY = 'mystery_mind_slots_v1';
 
+// Unified ID Generator
 const generateId = () => {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return Math.random().toString(36).substring(2, 11) + Date.now().toString(36);
+  return crypto.randomUUID();
 };
 
 const App: React.FC = () => {
-  // Main State
+  // Main State with Defensive Merging to prevent crashes on old saves
   const [state, setState] = useState<AppState>(() => {
     try {
       const saved = localStorage.getItem(WORKING_KEY);
-      if (saved) return { ...INITIAL_STATE, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // Ensure all required arrays/objects exist to prevent runtime errors
+        return {
+          ...INITIAL_STATE,
+          ...parsed,
+          characters: parsed.characters || [],
+          relationships: parsed.relationships || [],
+          characterGroups: parsed.characterGroups || [],
+          clues: parsed.clues || [],
+          alibis: parsed.alibis || [],
+          maps: parsed.maps || INITIAL_STATE.maps,
+          spaces: parsed.spaces || [],
+          timePoints: parsed.timePoints || INITIAL_STATE.timePoints,
+          timelineData: parsed.timelineData || {},
+          graphActiveCharacterIds: parsed.graphActiveCharacterIds || [],
+          graphLayout: parsed.graphLayout || {}
+        };
+      }
       return INITIAL_STATE;
     } catch (e) {
+      console.error("Critical error loading working state:", e);
       return INITIAL_STATE;
     }
   });
@@ -58,6 +76,7 @@ const App: React.FC = () => {
 
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
+  const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis'>('clues');
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [newSaveName, setNewSaveName] = useState('');
@@ -101,7 +120,15 @@ const App: React.FC = () => {
     const slot = saveSlots.find(s => s.id === slotId);
     if (!slot) return;
     if (confirm(`读取存档 "${slot.name}" 会覆盖当前未保存的进度，确定吗？`)) {
-      setState(slot.data);
+      // Deep merge for safety during load
+      setState({
+        ...INITIAL_STATE,
+        ...slot.data,
+        characters: slot.data.characters || [],
+        clues: slot.data.clues || [],
+        alibis: slot.data.alibis || [],
+        characterGroups: slot.data.characterGroups || []
+      });
       setIsSaveModalOpen(false);
       alert('存档读取成功');
     }
@@ -113,14 +140,36 @@ const App: React.FC = () => {
     }
   };
 
-  // --- Core State Handlers ---
+  // --- Alibi Handlers ---
+  const handleAddAlibi = (alibi: Alibi) => {
+    setState(prev => ({ ...prev, alibis: [...prev.alibis, alibi] }));
+  };
+
+  const handleUpdateAlibi = (updated: Alibi, index: number) => {
+    setState(prev => {
+      const newAlibis = [...prev.alibis];
+      newAlibis[index] = updated;
+      return { ...prev, alibis: newAlibis };
+    });
+  };
+
+  const handleDeleteAlibi = (index: number) => {
+    if (confirm("确定要删除这条不在场证明吗？")) {
+      setState(prev => ({
+        ...prev,
+        alibis: prev.alibis.filter((_, i) => i !== index)
+      }));
+    }
+  };
+
+  // --- Character Handlers ---
   const handleParseCharacters = useCallback(() => {
     const newChars = parseCharacterList(inputText);
     if (newChars.length > 0) {
       setState(prev => ({ ...prev, characters: [...prev.characters, ...newChars] }));
       setInputText('');
     } else {
-      alert('格式错误，请检查输入');
+      alert('格式错误，请检查输入。格式应为: "01. 姓名 描述"');
     }
   }, [inputText]);
 
@@ -162,10 +211,6 @@ const App: React.FC = () => {
     });
   };
 
-  const handleUpdateGroup = (updated: CharacterGroup) => {
-    setState(prev => ({ ...prev, characterGroups: prev.characterGroups.map(g => g.id === updated.id ? updated : g) }));
-  };
-
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans selection:bg-blue-500/30">
       {/* Header */}
@@ -177,7 +222,7 @@ const App: React.FC = () => {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-white">
               Mystery<span className="text-blue-500">Mind</span>
-              <span className="ml-2 text-sm font-normal text-slate-400 border-l border-slate-600 pl-2">推理辅助</span>
+              <span className="ml-2 text-sm font-normal text-slate-400 border-l border-slate-600 pl-2 uppercase tracking-widest">推理辅助</span>
             </h1>
           </div>
           
@@ -191,7 +236,7 @@ const App: React.FC = () => {
             </button>
             <div className="flex items-center gap-2 border-l border-slate-700 pl-4">
               <input type="file" ref={fileImportRef} onChange={handleImportData} accept=".json" className="hidden" />
-              <button onClick={() => fileImportRef.current?.click()} className="p-2 text-slate-400 hover:text-white" title="从文件读取"><Upload size={18} /></button>
+              <button onClick={() => fileImportRef.current?.click()} className="p-2 text-slate-400 hover:text-white" title="从文件读取存档"><Upload size={18} /></button>
               <button onClick={handleExportData} className="p-2 text-slate-400 hover:text-white" title="导出到文件"><Download size={18} /></button>
             </div>
           </div>
@@ -199,68 +244,71 @@ const App: React.FC = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
-        {/* Left Col: Sidebar */}
+        {/* Left Col: Character Sidebar */}
         <div className="lg:col-span-4 space-y-6">
-          {/* Quick Add */}
           <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg">
             <h2 className="font-bold text-white flex items-center gap-2 mb-4">
               <Database size={18} className="text-blue-400" />
-              导入人物
+              人物批量导入
             </h2>
             <textarea
               className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 focus:ring-2 focus:ring-blue-500/50 resize-none outline-none font-mono"
-              placeholder="01. 姓名 描述"
+              placeholder="01. 赫尔克里·波洛 侦探&#10;02. 阿瑟·黑斯廷斯 助手"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
             />
             <button
               onClick={handleParseCharacters}
-              className="w-full mt-4 bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all"
+              disabled={!inputText.trim()}
+              className="w-full mt-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all"
             >
               <Users size={16} /> 解析并添加
             </button>
           </div>
 
-          {/* Character List */}
           <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col max-h-[500px]">
             <div className="p-4 bg-slate-900/50 border-b border-slate-700">
               <h2 className="font-bold text-white flex items-center gap-2">
                 <Users size={18} className="text-purple-400" />
-                登场人物 ({state.characters.length})
+                登场人物清单 ({state.characters.length})
               </h2>
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-              {state.characters.map(char => (
-                <div 
-                  key={char.id} 
-                  draggable 
-                  onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)}
-                  className={`flex items-center justify-between p-2 rounded bg-slate-700/50 border border-slate-600/50 hover:border-slate-400 transition-colors group cursor-grab active:cursor-grabbing ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-50' : ''}`}
-                >
-                  <div className="flex items-center gap-3 truncate">
-                    <GripVertical size={14} className="text-slate-500 shrink-0" />
-                    <span className="text-sm font-medium text-blue-300 truncate" onClick={() => setEditingCharacter(char)}>{char.name}</span>
+              {state.characters.length === 0 ? (
+                <div className="text-center py-8 text-slate-600 italic text-sm">暂无人物</div>
+              ) : (
+                state.characters.map(char => (
+                  <div 
+                    key={char.id} 
+                    draggable 
+                    onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)}
+                    className={`flex items-center justify-between p-2 rounded bg-slate-700/50 border border-slate-600/50 hover:border-slate-400 transition-colors group cursor-grab active:cursor-grabbing ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 border-blue-500/30' : ''}`}
+                  >
+                    <div className="flex items-center gap-3 truncate">
+                      <GripVertical size={14} className="text-slate-500 shrink-0" />
+                      <span className="text-sm font-medium text-blue-300 truncate cursor-pointer hover:underline" onClick={() => setEditingCharacter(char)}>{char.name}</span>
+                    </div>
+                    <button onClick={() => setEditingCharacter(char)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-white transition-opacity"><Edit3 size={14}/></button>
                   </div>
-                  <button onClick={() => setEditingCharacter(char)} className="opacity-0 group-hover:opacity-100 p-1 text-slate-400 hover:text-white"><Edit3 size={14}/></button>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
 
-        {/* Right Col: Tabs */}
+        {/* Right Col: Main Content Tabs */}
         <div className="lg:col-span-8 space-y-6">
           <div className="flex border-b border-slate-700 gap-2">
             {[
-              { id: 'graph', label: '关系网', icon: Users },
-              { id: 'evidence', label: '线索墙', icon: Search },
-              { id: 'map', label: '时空轨迹', icon: MapIcon },
+              { id: 'graph', label: '逻辑关系网', icon: Users },
+              { id: 'evidence', label: '证物与线索', icon: Search },
+              { id: 'map', label: '空间轨迹', icon: MapIcon },
             ].map(tab => (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-all ${
-                  activeTab === tab.id ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'
+                  activeTab === tab.id ? 'border-blue-500 text-blue-400 bg-blue-500/5' : 'border-transparent text-slate-400 hover:text-slate-200'
                 }`}
               >
                 <tab.icon size={16} /> {tab.label}
@@ -282,18 +330,45 @@ const App: React.FC = () => {
                 onUpdateLayout={lay => setState(prev => ({ ...prev, graphLayout: { ...prev.graphLayout, ...lay } }))}
                 onRemoveNode={id => setState(prev => ({ ...prev, graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(cid => cid !== id) }))}
                 onAddGroup={g => setState(prev => ({ ...prev, characterGroups: [...prev.characterGroups, g] }))}
-                onUpdateGroup={handleUpdateGroup}
+                onUpdateGroup={g => setState(prev => ({ ...prev, characterGroups: prev.characterGroups.map(item => item.id === g.id ? g : item) }))}
                 onRemoveGroup={id => setState(prev => ({ ...prev, characterGroups: prev.characterGroups.filter(g => g.id !== id) }))}
               />
             )}
             {activeTab === 'evidence' && (
-              <EvidenceBoard 
-                clues={state.clues} 
-                onAddClue={c => setState(prev => ({ ...prev, clues: [...prev.clues, c] }))}
-                onUpdateClue={c => setState(prev => ({ ...prev, clues: prev.clues.map(i => i.id === c.id ? c : i) }))}
-                onUpdateStatus={(id, s) => setState(prev => ({ ...prev, clues: prev.clues.map(c => c.id === id ? { ...c, status: s } : c) }))}
-                onDeleteClue={id => setState(prev => ({ ...prev, clues: prev.clues.filter(c => c.id !== id) }))}
-              />
+              <div className="space-y-6">
+                <div className="flex gap-4 border-b border-slate-800 pb-2">
+                    <button 
+                        onClick={() => setEvidenceSubTab('clues')}
+                        className={`text-sm font-bold flex items-center gap-2 px-4 py-2 rounded-t-lg transition-colors ${evidenceSubTab === 'clues' ? 'bg-slate-800 text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                        <Search size={14} /> 证物公告板
+                    </button>
+                    <button 
+                        onClick={() => setEvidenceSubTab('alibis')}
+                        className={`text-sm font-bold flex items-center gap-2 px-4 py-2 rounded-t-lg transition-colors ${evidenceSubTab === 'alibis' ? 'bg-slate-800 text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                        <ShieldCheck size={14} /> 不在场证明矩阵
+                    </button>
+                </div>
+                
+                {evidenceSubTab === 'clues' ? (
+                  <EvidenceBoard 
+                    clues={state.clues} 
+                    onAddClue={c => setState(prev => ({ ...prev, clues: [...prev.clues, c] }))}
+                    onUpdateClue={c => setState(prev => ({ ...prev, clues: prev.clues.map(i => i.id === c.id ? c : i) }))}
+                    onUpdateStatus={(id, s) => setState(prev => ({ ...prev, clues: prev.clues.map(c => c.id === id ? { ...c, status: s } : c) }))}
+                    onDeleteClue={id => setState(prev => ({ ...prev, clues: prev.clues.filter(c => c.id !== id) }))}
+                  />
+                ) : (
+                  <AlibiMatrix 
+                    alibis={state.alibis} 
+                    characters={state.characters}
+                    onAddAlibi={handleAddAlibi}
+                    onUpdateAlibi={handleUpdateAlibi}
+                    onDeleteAlibi={handleDeleteAlibi}
+                  />
+                )}
+              </div>
             )}
             {activeTab === 'map' && (
               <MapCanvas 
@@ -315,34 +390,34 @@ const App: React.FC = () => {
       {/* Save Management Modal */}
       {isSaveModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-          <div className="bg-slate-800 rounded-2xl border border-slate-600 shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-2xl">
+          <div className="bg-slate-800 rounded-2xl border border-slate-600 shadow-2xl w-full max-w-2xl flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200 overflow-hidden">
+            <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
               <h2 className="text-xl font-bold text-white flex items-center gap-3">
                 <Archive size={24} className="text-blue-400" />
                 存档管理器
               </h2>
-              <button onClick={() => setIsSaveModalOpen(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
+              <button onClick={() => setIsSaveModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={24} /></button>
             </div>
 
-            <div className="p-6 flex-1 overflow-y-auto space-y-6">
+            <div className="p-6 flex-1 overflow-y-auto space-y-6 custom-scrollbar">
               {/* New Save Form */}
               <div className="bg-slate-900/50 p-4 rounded-xl border border-slate-700">
                 <h3 className="text-sm font-bold text-slate-400 mb-3 flex items-center gap-2">
-                  <Plus size={16} /> 创建新存档
+                  <Plus size={16} /> 创建新存档槽位
                 </h3>
                 <div className="flex gap-2">
                   <input 
                     value={newSaveName}
                     onChange={e => setNewSaveName(e.target.value)}
-                    placeholder="输入存档名称 (例如: 案发第一阶段)"
+                    placeholder="输入存档描述 (如: 第三章结束)"
                     className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none"
                   />
                   <button 
                     onClick={handleCreateNewSave}
                     disabled={!newSaveName.trim()}
-                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2"
+                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-6 py-2 rounded-lg font-bold flex items-center gap-2 transition-all"
                   >
-                    <Save size={18} /> 保存
+                    <Save size={18} /> 保存进度
                   </button>
                 </div>
               </div>
@@ -350,11 +425,11 @@ const App: React.FC = () => {
               {/* Slot List */}
               <div className="space-y-3">
                 <h3 className="text-sm font-bold text-slate-400 mb-2 flex items-center gap-2">
-                  <FolderOpen size={16} /> 已有存档列表
+                  <FolderOpen size={16} /> 已保存的记录
                 </h3>
                 {saveSlots.length === 0 ? (
                   <div className="text-center py-12 text-slate-600 border-2 border-dashed border-slate-700 rounded-xl">
-                    暂无本地存档
+                    尚未发现本地存档记录
                   </div>
                 ) : (
                   saveSlots.map(slot => (
@@ -363,8 +438,8 @@ const App: React.FC = () => {
                         <h4 className="font-bold text-blue-300 truncate">{slot.name}</h4>
                         <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
                           <span className="flex items-center gap-1"><Clock size={12}/> {new Date(slot.timestamp).toLocaleString()}</span>
-                          <span>{slot.data.characters.length} 人物</span>
-                          <span>{slot.data.clues.length} 线索</span>
+                          <span>{slot.data.characters.length} 角色</span>
+                          <span>{slot.data.clues.length} 证物</span>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -377,6 +452,7 @@ const App: React.FC = () => {
                         <button 
                           onClick={() => handleOverwriteSave(slot.id)}
                           className="px-3 py-1.5 bg-slate-700 hover:bg-yellow-600 text-white rounded-lg text-xs font-bold transition-colors"
+                          title="使用当前状态覆盖此存档"
                         >
                           覆盖
                         </button>
@@ -394,38 +470,50 @@ const App: React.FC = () => {
             </div>
 
             <div className="p-4 border-t border-slate-700 bg-slate-900/30 text-center">
-              <p className="text-[10px] text-slate-500 uppercase tracking-widest">存档保存在当前浏览器本地缓存中</p>
+              <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono">Storage: Browser Local Cache</p>
             </div>
           </div>
         </div>
       )}
 
-      {/* Character Modal Placeholder (Keep logic as is) */}
+      {/* Character Edit Modal */}
       {editingCharacter && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="bg-slate-800 rounded-xl border border-slate-600 w-full max-w-md p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-bold text-white">编辑人物: {editingCharacter.name}</h3>
-              <button onClick={() => setEditingCharacter(null)}><X size={20}/></button>
+          <div className="bg-slate-800 rounded-xl border border-slate-600 w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-4 border-b border-slate-700 bg-slate-900/50">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <Users size={18} className="text-blue-400" />
+                  编辑人物: {editingCharacter.name}
+              </h3>
+              <button onClick={() => setEditingCharacter(null)} className="text-slate-400 hover:text-white"><X size={20}/></button>
             </div>
-            <div className="space-y-4">
-              <input 
-                className="w-full bg-slate-900 border border-slate-700 rounded p-2" 
-                value={editingCharacter.name} 
-                onChange={e => setEditingCharacter({...editingCharacter, name: e.target.value})} 
-              />
-              <textarea 
-                className="w-full h-24 bg-slate-900 border border-slate-700 rounded p-2" 
-                value={editingCharacter.note || ''} 
-                onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})}
-                placeholder="添加备注..."
-              />
-              <button 
-                onClick={() => { setState(p => ({ ...p, characters: p.characters.map(c => c.id === editingCharacter.id ? editingCharacter : c) })); setEditingCharacter(null); }}
-                className="w-full bg-blue-600 py-2 rounded font-bold"
-              >
-                保存
-              </button>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">姓名</label>
+                <input 
+                    className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" 
+                    value={editingCharacter.name} 
+                    onChange={e => setEditingCharacter({...editingCharacter, name: e.target.value})} 
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-400 mb-1">笔记与备注</label>
+                <textarea 
+                    className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none" 
+                    value={editingCharacter.note || ''} 
+                    onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})}
+                    placeholder="在此输入关于该角色的线索、动机或疑点..."
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-2">
+                <button onClick={() => setEditingCharacter(null)} className="px-4 py-2 text-slate-400 hover:text-white">取消</button>
+                <button 
+                    onClick={() => { setState(p => ({ ...p, characters: p.characters.map(c => c.id === editingCharacter.id ? editingCharacter : c) })); setEditingCharacter(null); }}
+                    className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-bold shadow-lg transition-all"
+                >
+                    确认修改
+                </button>
+              </div>
             </div>
           </div>
         </div>
