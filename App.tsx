@@ -181,6 +181,33 @@ const App: React.FC = () => {
     setStatusMessage("人物已删除");
   };
 
+  const handleDeleteMap = (mapId: string) => {
+    if (state.maps.length <= 1) {
+      setErrorMessage("至少需要保留一个场景");
+      return;
+    }
+    setState(prev => {
+      const newMaps = prev.maps.filter(m => m.id !== mapId);
+      const newCurrentMapId = prev.currentMapId === mapId ? newMaps[0].id : prev.currentMapId;
+      
+      // 清除关联数据
+      const newSpaces = prev.spaces.filter(s => s.mapId !== mapId);
+      const newTimelineData = { ...prev.timelineData };
+      Object.keys(newTimelineData).forEach(timeId => {
+        newTimelineData[timeId] = newTimelineData[timeId].filter(p => p.mapId !== mapId);
+      });
+
+      return {
+        ...prev,
+        maps: newMaps,
+        currentMapId: newCurrentMapId,
+        spaces: newSpaces,
+        timelineData: newTimelineData
+      };
+    });
+    setStatusMessage("场景及关联数据已删除");
+  };
+
   // --- File System Access API Logic ---
 
   /**
@@ -592,6 +619,7 @@ const App: React.FC = () => {
                 maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces}
                 timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} characters={state.characters}
                 onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))}
+                onDeleteMap={handleDeleteMap}
                 onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }}
                 onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))}
                 onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))}
@@ -624,7 +652,7 @@ const App: React.FC = () => {
               </p>
               
               {isIframe && (
-                <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-2xl text-yellow-200/80 text-xs leading-relaxed">
+                <div className="flex items-start gap-3 p-4 bg-yellow-900/20 border border-yellow-700/50 rounded-2xl text-yellow-200/80 text-xs导致加载慢。">
                   <Info className="shrink-0 text-yellow-500" size={18} />
                   <p>
                     当前检测到您正在<strong>跨域沙盒环境</strong>中浏览。受浏览器安全策略限制，系统无法直接修改您的本地磁盘文件。点击下方按钮将触发标准“下载”操作。

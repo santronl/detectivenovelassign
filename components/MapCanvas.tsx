@@ -17,6 +17,7 @@ interface Props {
 
   // Actions
   onUpdateMaps: (maps: MapDoc[]) => void;
+  onDeleteMap: (id: string) => void;
   onCreateMap: (name: string) => void;
   onSelectMap: (id: string) => void;
   onUpdateSpaces: (spaces: Space[]) => void;
@@ -36,7 +37,7 @@ const generateId = () => {
 const MapCanvas: React.FC<Props> = ({ 
     maps, currentMapId, spaces,
     timePoints, currentTimeId, timelineData, characters,
-    onUpdateMaps, onCreateMap, onSelectMap, onUpdateSpaces,
+    onUpdateMaps, onDeleteMap, onCreateMap, onSelectMap, onUpdateSpaces,
     onUpdateTimePoints, onSelectTime, onUpdatePlacements
 }) => {
   const [isDrawing, setIsDrawing] = useState(false);
@@ -47,15 +48,15 @@ const MapCanvas: React.FC<Props> = ({
   const [editForm, setEditForm] = useState<{ name: string; attributes: string[]; note: string } | null>(null);
   const [dragOverMap, setDragOverMap] = useState(false);
   
-  // Timeline Modal State
+  // Modals State
   const [isTimeModalOpen, setIsTimeModalOpen] = useState(false);
   const [newTimeName, setNewTimeName] = useState("");
   const [timeToDelete, setTimeToDelete] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
 
-  // Map Modal State
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [newMapName, setNewMapName] = useState("");
+  const [mapToDelete, setMapToDelete] = useState<MapDoc | null>(null);
   const mapInputRef = useRef<HTMLInputElement>(null);
   
   // Map Renaming State
@@ -137,6 +138,13 @@ const MapCanvas: React.FC<Props> = ({
           onUpdateMaps(newMaps);
       }
       setEditingMapId(null);
+  };
+
+  const handleConfirmDeleteMap = () => {
+    if (mapToDelete) {
+      onDeleteMap(mapToDelete.id);
+      setMapToDelete(null);
+    }
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -291,7 +299,7 @@ const MapCanvas: React.FC<Props> = ({
   return (
     <div className="flex flex-col gap-2 h-[650px] lg:h-[calc(100vh-180px)] min-h-[500px] relative">
       <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 shrink-0">
-        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[60%]">
+        <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[70%]">
             {maps.map(m => (
                 editingMapId === m.id ? (
                     <input 
@@ -301,22 +309,32 @@ const MapCanvas: React.FC<Props> = ({
                         onChange={(e) => setTempMapName(e.target.value)}
                         onBlur={saveMapName}
                         onKeyDown={(e) => e.key === 'Enter' && saveMapName()}
-                        className="w-24 px-2 py-1.5 rounded text-sm bg-slate-900 text-white border border-blue-500 outline-none"
+                        className="w-32 px-2 py-1.5 rounded text-sm bg-slate-900 text-white border border-blue-500 outline-none"
                     />
                 ) : (
-                    <button
-                        key={m.id}
-                        onClick={() => onSelectMap(m.id)}
-                        onDoubleClick={() => startRenaming(m)}
-                        className={`px-3 py-1.5 rounded text-sm whitespace-nowrap transition-colors select-none ${
-                            currentMapId === m.id ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
-                        }`}
-                    >
-                        {m.name}
-                    </button>
+                    <div key={m.id} className="relative group/tab flex shrink-0">
+                        <button
+                            onClick={() => onSelectMap(m.id)}
+                            onDoubleClick={() => startRenaming(m)}
+                            className={`px-4 py-1.5 rounded text-sm whitespace-nowrap transition-all select-none flex items-center gap-2 ${
+                                currentMapId === m.id ? 'bg-blue-600 text-white pr-7' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                            }`}
+                        >
+                            {m.name}
+                        </button>
+                        {maps.length > 1 && (
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); setMapToDelete(m); }}
+                                className={`absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded-md hover:bg-red-500/30 text-slate-400 hover:text-red-400 transition-opacity ${currentMapId === m.id ? 'opacity-100' : 'opacity-0 group-hover/tab:opacity-100'}`}
+                                title="删除场景"
+                            >
+                                <X size={14} />
+                            </button>
+                        )}
+                    </div>
                 )
             ))}
-            <button onClick={handleOpenMapModal} className="p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-400">
+            <button onClick={handleOpenMapModal} className="p-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-400 shrink-0" title="新建场景">
                 <Plus size={16} />
             </button>
         </div>
@@ -327,18 +345,19 @@ const MapCanvas: React.FC<Props> = ({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isCompressing}
                 className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 disabled:opacity-50"
+                title="上传背景图"
             >
                 {isCompressing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
             </button>
             {isDrawing ? (
                 <>
-                    <button onClick={finishShape} className="px-3 py-1.5 bg-green-600 rounded text-sm">完成</button>
-                    <button onClick={() => { setIsDrawing(false); setCurrentPoints([]); }} className="px-3 py-1.5 bg-red-600 rounded text-sm">取消</button>
+                    <button onClick={finishShape} className="px-3 py-1.5 bg-green-600 rounded text-sm font-bold shadow-lg">完成</button>
+                    <button onClick={() => { setIsDrawing(false); setCurrentPoints([]); }} className="px-3 py-1.5 bg-red-600 rounded text-sm font-bold">取消</button>
                 </>
             ) : (
                 <button 
                     onClick={() => setIsDrawing(true)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm"
+                    className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-bold shadow-lg transition-all active:scale-95"
                 >
                     <Plus size={16} /> 绘制区域
                 </button>
@@ -360,7 +379,7 @@ const MapCanvas: React.FC<Props> = ({
                 {!currentMap.imageUrl ? (
                     <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 pointer-events-none select-none border border-slate-700/30">
                         <MapPin size={48} className="mb-2 opacity-50" />
-                        <p>请上传背景图或直接拖入角色</p>
+                        <p className="text-sm font-medium">请上传背景图或直接拖入角色</p>
                     </div>
                 ) : (
                     <img src={currentMap.imageUrl} className="w-full h-full pointer-events-none select-none" alt="map" onLoad={(e) => setNaturalSize({w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight})} />
@@ -406,13 +425,13 @@ const MapCanvas: React.FC<Props> = ({
                         <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Edit3 size={14} className="text-blue-400" />区域编辑</h3>
                         <button onClick={() => { setSelectedSpaceId(null); setEditForm(null); }} className="text-slate-500 hover:text-white"><X size={16} /></button>
                     </div>
-                    <div className="p-3 space-y-3 flex-1 overflow-y-auto">
+                    <div className="p-3 space-y-3 flex-1 overflow-y-auto custom-scrollbar">
                         <div>
-                           <label className="text-xs font-bold text-slate-400 mb-1 block">区域名称</label>
+                           <label className="text-xs font-bold text-slate-400 mb-1 block uppercase tracking-wider">区域名称</label>
                            <input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none" autoFocus />
                         </div>
                         <div>
-                           <label className="text-xs font-bold text-slate-400 mb-1 block">属性标签</label>
+                           <label className="text-xs font-bold text-slate-400 mb-1 block uppercase tracking-wider">属性标签</label>
                            <div className="flex flex-wrap gap-1.5">
                              {['密室', '上锁', '未探索', '危险', '案发现场'].map(attr => (
                                 <button key={attr} onClick={() => toggleAttribute(attr)} className={`text-[10px] px-2 py-1 rounded border transition-colors ${editForm.attributes.includes(attr) ? 'bg-blue-600 border-blue-500 text-white shadow' : 'bg-slate-700 border-slate-600 text-slate-400 hover:bg-slate-600'}`}>{attr}</button>
@@ -420,27 +439,27 @@ const MapCanvas: React.FC<Props> = ({
                            </div>
                         </div>
                         <div>
-                           <label className="text-xs font-bold text-slate-400 mb-1 block">场景备注</label>
-                           <textarea value={editForm.note} onChange={e => setEditForm({...editForm, note: e.target.value})} className="w-full h-40 bg-slate-900 border border-slate-600 rounded p-2 text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 outline-none" placeholder="描述特征..." />
+                           <label className="text-xs font-bold text-slate-400 mb-1 block uppercase tracking-wider">场景备注</label>
+                           <textarea value={editForm.note} onChange={e => setEditForm({...editForm, note: e.target.value})} className="w-full h-40 bg-slate-900 border border-slate-600 rounded p-2 text-white text-sm resize-none focus:ring-2 focus:ring-blue-500 outline-none" placeholder="在此记录现场的关键细节、发现的血迹、反常的陈设等..." />
                         </div>
                     </div>
                     <div className="p-3 border-t border-slate-700 bg-slate-800/50 flex gap-2 rounded-b-lg">
                         <button onClick={() => { const newSpaces = spaces.filter(s => s.id !== selectedSpaceId); onUpdateSpaces(newSpaces); setSelectedSpaceId(null); setEditForm(null); }} className="p-2 text-red-400 hover:bg-red-900/20 rounded transition-colors" title="删除"><Trash2 size={16} /></button>
-                        <button onClick={saveEdit} className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow">保存</button>
+                        <button onClick={saveEdit} className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow-lg transition-all">保存修改</button>
                     </div>
                 </div>
             )}
          </div>
       </div>
 
-      <div className="shrink-0 h-28 bg-slate-800 rounded-lg border border-slate-700 flex flex-col">
+      <div className="shrink-0 h-28 bg-slate-800 rounded-lg border border-slate-700 flex flex-col shadow-inner">
         <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-            <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线</h3>
-            <button onClick={handleOpenTimeModal} className="text-slate-400 hover:text-white p-1 hover:bg-slate-700 rounded"><Plus size={14} /></button>
+            <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线点 (Timeline)</h3>
+            <button onClick={handleOpenTimeModal} className="text-slate-400 hover:text-white p-1 hover:bg-slate-700 rounded transition-colors"><Plus size={14} /></button>
         </div>
         <div className="flex-1 overflow-x-auto flex items-center p-2 gap-2 custom-scrollbar">
             {timePoints.map((tp) => (
-                <div key={tp.id} draggable onDragStart={(e) => handleTimeDragStart(e, tp.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleTimeDrop(e, tp.id)} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 w-40 h-full p-2 rounded cursor-pointer border transition-all relative flex flex-col justify-between ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-md' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
+                <div key={tp.id} draggable onDragStart={(e) => handleTimeDragStart(e, tp.id)} onDragOver={(e) => e.preventDefault()} onDrop={(e) => handleTimeDrop(e, tp.id)} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 w-40 h-full p-2 rounded cursor-pointer border transition-all relative flex flex-col justify-between ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-lg' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
                     <div className="flex justify-between items-start">
                         <div className="flex items-center gap-2">
                              <GripVertical size={12} className="text-slate-600 cursor-grab opacity-0 group-hover:opacity-100" />
@@ -449,7 +468,7 @@ const MapCanvas: React.FC<Props> = ({
                         {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12} /></button>}
                     </div>
                     <div className="flex items-end justify-between mt-2">
-                         <div className="text-[10px] text-slate-500">{timelineData[tp.id]?.length || 0} 角色</div>
+                         <div className="text-[10px] text-slate-500 font-mono tracking-tighter uppercase">{timelineData[tp.id]?.length || 0} 已定位角色</div>
                          {currentTimeId === tp.id && <div className="w-full h-0.5 bg-orange-500 absolute bottom-0 left-0 right-0 rounded-b"></div>}
                     </div>
                 </div>
@@ -457,6 +476,38 @@ const MapCanvas: React.FC<Props> = ({
             <button onClick={handleOpenTimeModal} className="flex-shrink-0 w-8 h-full rounded border border-dashed border-slate-700 hover:border-slate-500 hover:bg-slate-800 flex items-center justify-center text-slate-500 transition-colors"><Plus size={16} /></button>
         </div>
       </div>
+
+      {/* Confirmation Modal for Map Deletion */}
+      {mapToDelete && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+                <AlertTriangle className="text-red-500" size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">确认删除场景?</h3>
+              <p className="text-slate-400 text-sm leading-relaxed mb-6">
+                确定要彻底删除场景 "<span className="text-white font-bold">{mapToDelete.name}</span>" 吗？<br/>
+                该场景下的<span className="text-red-300 font-bold">所有绘制区域和角色停留记录</span>都将被永久抹除。
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setMapToDelete(null)}
+                  className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleConfirmDeleteMap}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95"
+                >
+                  确认物理删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal for TimePoint Deletion */}
       {timeToDelete && (
@@ -468,7 +519,7 @@ const MapCanvas: React.FC<Props> = ({
               </div>
               <h3 className="text-xl font-bold text-white mb-2">确认删除时间点?</h3>
               <p className="text-slate-400 text-sm leading-relaxed mb-6">
-                确定要删除时间点 "<span className="text-white font-bold">{timePoints.find(t => t.id === timeToDelete)?.label}</span>" 吗？该时间点下的角色轨迹将被清空。
+                确定要删除时间点 "<span className="text-white font-bold">{timePoints.find(t => t.id === timeToDelete)?.label}</span>" 吗？该时刻下的所有角色位置坐标都将被清空。
               </p>
               <div className="flex gap-3">
                 <button 
@@ -481,7 +532,7 @@ const MapCanvas: React.FC<Props> = ({
                   onClick={handleConfirmDeleteTime}
                   className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95"
                 >
-                  确认删除
+                  确认物理删除
                 </button>
               </div>
             </div>
@@ -491,20 +542,20 @@ const MapCanvas: React.FC<Props> = ({
 
       {isTimeModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
-                <div className="p-4 border-b border-slate-700 flex justify-between items-center"><h3 className="font-bold text-white">添加时间点</h3><button onClick={() => setIsTimeModalOpen(false)}><X size={20} className="text-slate-400" /></button></div>
-                <div className="p-6"><input ref={timeInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="例如: 12:00, 案发时..." value={newTimeName} onChange={(e) => setNewTimeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveTimePoint()} /></div>
-                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsTimeModalOpen(false)} className="px-4 py-2 text-slate-300 hover:text-white text-sm">取消</button><button onClick={handleSaveTimePoint} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold">添加</button></div>
+            <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200">
+                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">添加时间节点</h3><button onClick={() => setIsTimeModalOpen(false)}><X size={20} className="text-slate-400" /></button></div>
+                <div className="p-6"><input ref={timeInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="例如: 12:00, 案发时刻, 停电后..." value={newTimeName} onChange={(e) => setNewTimeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveTimePoint()} /></div>
+                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsTimeModalOpen(false)} className="px-4 py-2 text-slate-300 hover:text-white text-sm">取消</button><button onClick={handleSaveTimePoint} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow-lg">确认添加</button></div>
             </div>
         </div>
       )}
 
       {isMapModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
-                <div className="p-4 border-b border-slate-700 flex justify-between items-center"><h3 className="font-bold text-white">新建地图层</h3><button onClick={() => setIsMapModalOpen(false)}><X size={20} className="text-slate-400" /></button></div>
-                <div className="p-6"><input ref={mapInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="例如: 二楼, 地下室..." value={newMapName} onChange={(e) => setNewMapName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddMap()} /></div>
-                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsMapModalOpen(false)} className="px-4 py-2 text-slate-300 hover:text-white text-sm">取消</button><button onClick={handleConfirmAddMap} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold">创建</button></div>
+            <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200">
+                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">新建地图层</h3><button onClick={() => setIsMapModalOpen(false)}><X size={20} className="text-slate-400" /></button></div>
+                <div className="p-6"><input ref={mapInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="例如: 二楼, 地下室, 公园外围..." value={newMapName} onChange={(e) => setNewMapName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddMap()} /></div>
+                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsMapModalOpen(false)} className="px-4 py-2 text-slate-300 hover:text-white text-sm">取消</button><button onClick={handleConfirmAddMap} className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold shadow-lg">创建场景</button></div>
             </div>
         </div>
       )}
