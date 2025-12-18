@@ -341,7 +341,15 @@ const App: React.FC = () => {
                 onUpdateDefs={defs => setState(prev => ({ ...prev, relationshipDefs: defs }))}
                 onNodeDrop={id => !state.graphActiveCharacterIds.includes(id) && setState(prev => ({ ...prev, graphActiveCharacterIds: [...prev.graphActiveCharacterIds, id] }))}
                 onUpdateLayout={lay => setState(prev => ({ ...prev, graphLayout: { ...prev.graphLayout, ...lay } }))}
-                onRemoveNode={id => setState(prev => ({ ...prev, graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(cid => cid !== id) }))}
+                onRemoveNode={id => setState(prev => ({ 
+                  ...prev, 
+                  graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(cid => cid !== id),
+                  relationships: prev.relationships.filter(r => r.source !== id && r.target !== id),
+                  characterGroups: prev.characterGroups.map(g => ({
+                    ...g,
+                    characterIds: g.characterIds.filter(memberId => memberId !== id)
+                  })).filter(g => g.characterIds.length > 0)
+                }))}
                 onAddGroup={g => setState(prev => ({ ...prev, characterGroups: [...prev.characterGroups, g] }))}
                 onUpdateGroup={g => setState(prev => ({ ...prev, characterGroups: prev.characterGroups.map(item => item.id === g.id ? g : item) }))}
                 onRemoveGroup={id => setState(prev => ({ ...prev, characterGroups: prev.characterGroups.filter(g => g.id !== id) }))}
