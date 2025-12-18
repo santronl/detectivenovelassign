@@ -350,6 +350,16 @@ const App: React.FC = () => {
     });
   };
 
+  const handleRemoveRelationship = (source: string, target: string) => {
+    setState(prev => ({
+      ...prev,
+      relationships: prev.relationships.filter(r => 
+        !((r.source === source && r.target === target) || (r.source === target && r.target === source))
+      )
+    }));
+    setStatusMessage("关系连线已移除");
+  };
+
   if (!isInitialized) {
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400">
@@ -523,6 +533,7 @@ const App: React.FC = () => {
                 characterGroups={state.characterGroups}
                 layout={state.graphLayout}
                 onAddRelationship={handleAddRelationship}
+                onRemoveRelationship={handleRemoveRelationship}
                 onUpdateDefs={defs => setState(prev => ({ ...prev, relationshipDefs: defs }))}
                 onNodeDrop={id => !state.graphActiveCharacterIds.includes(id) && setState(prev => ({ ...prev, graphActiveCharacterIds: [...prev.graphActiveCharacterIds, id] }))}
                 onUpdateLayout={lay => setState(prev => ({ ...prev, graphLayout: { ...prev.graphLayout, ...lay } }))}

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Space, Point, MapDoc, TimePoint, CharacterPlacement, Character } from '../types';
-import { Upload, Plus, X, Trash2, MapPin, Clock, GripVertical, Edit3, Loader2 } from 'lucide-react';
+import { Upload, Plus, X, Trash2, MapPin, Clock, GripVertical, Edit3, Loader2, AlertTriangle } from 'lucide-react';
 import { compressImage } from '../utils/imageProcessor';
 
 interface Props {
@@ -50,6 +50,7 @@ const MapCanvas: React.FC<Props> = ({
   // Timeline Modal State
   const [isTimeModalOpen, setIsTimeModalOpen] = useState(false);
   const [newTimeName, setNewTimeName] = useState("");
+  const [timeToDelete, setTimeToDelete] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
 
   // Map Modal State
@@ -143,12 +144,10 @@ const MapCanvas: React.FC<Props> = ({
     if (file) {
       setIsCompressing(true);
       try {
-        // Limit to 1024px and use WebP compression for IndexedDB efficiency
         const compressedBase64 = await compressImage(file, 1024, 0.8);
         onUpdateMaps(maps.map(m => m.id === currentMapId ? { ...m, imageUrl: compressedBase64 } : m));
       } catch (err) {
         console.error("Image compression failed:", err);
-        alert("图片处理失败，请重试。");
       } finally {
         setIsCompressing(false);
       }
@@ -172,19 +171,14 @@ const MapCanvas: React.FC<Props> = ({
       setIsTimeModalOpen(false);
   };
 
-  const handleDeleteTimePoint = (e: React.MouseEvent, id: string) => {
-      e.stopPropagation();
-      if (timePoints.length <= 1) {
-          alert("至少保留一个时间点");
-          return;
+  const handleConfirmDeleteTime = () => {
+      if (!timeToDelete) return;
+      const newPoints = timePoints.filter(t => t.id !== timeToDelete);
+      onUpdateTimePoints(newPoints);
+      if (currentTimeId === timeToDelete) {
+          onSelectTime(newPoints[0].id);
       }
-      if (confirm("确定删除该时间点吗？")) {
-          const newPoints = timePoints.filter(t => t.id !== id);
-          onUpdateTimePoints(newPoints);
-          if (currentTimeId === id) {
-              onSelectTime(newPoints[0].id);
-          }
-      }
+      setTimeToDelete(null);
   };
 
   const handleTimeDragStart = (e: React.DragEvent, id: string) => {
@@ -251,10 +245,7 @@ const MapCanvas: React.FC<Props> = ({
   };
 
   const finishShape = () => {
-    if (currentPoints.length < 3) {
-      alert("请至少绘制3个点以构成区域");
-      return;
-    }
+    if (currentPoints.length < 3) return;
     const newSpace: Space = {
       id: generateId(),
       mapId: currentMapId,
@@ -299,7 +290,6 @@ const MapCanvas: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col gap-2 h-[650px] lg:h-[calc(100vh-180px)] min-h-[500px] relative">
-      {/* Top Bar: Maps & Tools */}
       <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 shrink-0">
         <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[60%]">
             {maps.map(m => (
@@ -321,7 +311,6 @@ const MapCanvas: React.FC<Props> = ({
                         className={`px-3 py-1.5 rounded text-sm whitespace-nowrap transition-colors select-none ${
                             currentMapId === m.id ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                         }`}
-                        title="双击重命名"
                     >
                         {m.name}
                     </button>
@@ -338,7 +327,6 @@ const MapCanvas: React.FC<Props> = ({
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isCompressing}
                 className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 disabled:opacity-50"
-                title="上传当前地图背景"
             >
                 {isCompressing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
             </button>
@@ -358,7 +346,6 @@ const MapCanvas: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Main Map Viewport */}
       <div className="flex-1 relative bg-slate-900 border border-slate-700 rounded-lg overflow-hidden flex flex-col min-h-0">
         <div ref={wrapperRef} className="flex-1 w-full h-full flex items-center justify-center bg-[#1e293b] overflow-hidden relative">
             <div 
@@ -446,7 +433,6 @@ const MapCanvas: React.FC<Props> = ({
          </div>
       </div>
 
-      {/* Horizontal Timeline Strip */}
       <div className="shrink-0 h-28 bg-slate-800 rounded-lg border border-slate-700 flex flex-col">
         <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
             <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线</h3>
@@ -460,7 +446,7 @@ const MapCanvas: React.FC<Props> = ({
                              <GripVertical size={12} className="text-slate-600 cursor-grab opacity-0 group-hover:opacity-100" />
                              <span className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>{tp.label}</span>
                         </div>
-                        {timePoints.length > 1 && <button onClick={(e) => handleDeleteTimePoint(e, tp.id)} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12} /></button>}
+                        {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12} /></button>}
                     </div>
                     <div className="flex items-end justify-between mt-2">
                          <div className="text-[10px] text-slate-500">{timelineData[tp.id]?.length || 0} 角色</div>
@@ -471,6 +457,37 @@ const MapCanvas: React.FC<Props> = ({
             <button onClick={handleOpenTimeModal} className="flex-shrink-0 w-8 h-full rounded border border-dashed border-slate-700 hover:border-slate-500 hover:bg-slate-800 flex items-center justify-center text-slate-500 transition-colors"><Plus size={16} /></button>
         </div>
       </div>
+
+      {/* Confirmation Modal for TimePoint Deletion */}
+      {timeToDelete && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+                <AlertTriangle className="text-red-500" size={32} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">确认删除时间点?</h3>
+              <p className="text-slate-400 text-sm leading-relaxed mb-6">
+                确定要删除时间点 "<span className="text-white font-bold">{timePoints.find(t => t.id === timeToDelete)?.label}</span>" 吗？该时间点下的角色轨迹将被清空。
+              </p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setTimeToDelete(null)}
+                  className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all"
+                >
+                  取消
+                </button>
+                <button 
+                  onClick={handleConfirmDeleteTime}
+                  className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95"
+                >
+                  确认删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isTimeModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">

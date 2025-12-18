@@ -1,7 +1,8 @@
+
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Character, Relationship, RelationshipDef, CharacterGroup } from '../types';
-import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, UserPlus, Layers, Check, Edit2, UserMinus, X } from 'lucide-react';
+import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, Layers, Check, Edit2, X, AlertTriangle } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -10,6 +11,7 @@ interface Props {
   characterGroups: CharacterGroup[];
   layout: Record<string, { x: number; y: number }>;
   onAddRelationship: (source: string, target: string, relation: string) => void;
+  onRemoveRelationship: (source: string, target: string) => void;
   onUpdateDefs: (defs: RelationshipDef[]) => void;
   onNodeDrop: (charId: string) => void;
   onUpdateLayout: (layout: Record<string, { x: number; y: number }>) => void;
@@ -19,6 +21,12 @@ interface Props {
   onRemoveGroup: (groupId: string) => void;
 }
 
+type PendingAction = 
+  | { type: 'delete_group'; id: string; label: string }
+  | { type: 'delete_relationship'; source: string; target: string; relation: string }
+  | { type: 'delete_node'; id: string; name: string }
+  | null;
+
 const RelationshipGraph: React.FC<Props> = ({ 
     characters, 
     relationships, 
@@ -26,6 +34,7 @@ const RelationshipGraph: React.FC<Props> = ({
     characterGroups = [],
     layout = {}, 
     onAddRelationship,
+    onRemoveRelationship,
     onUpdateDefs,
     onNodeDrop,
     onUpdateLayout,
@@ -41,28 +50,22 @@ const RelationshipGraph: React.FC<Props> = ({
   const [mode, setMode] = useState<'move' | 'connect' | 'delete' | 'group'>('move');
   const [activeDefId, setActiveDefId] = useState<string>(relationshipDefs[0]?.id);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   
-  // Group creation state
   const [selectedForGroup, setSelectedForGroup] = useState<Set<string>>(new Set());
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [newGroupLabel, setNewGroupLabel] = useState("");
-
-  // Group editing state
   const [editingGroup, setEditingGroup] = useState<CharacterGroup | null>(null);
-
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  // Keep track of current nodes data for D3 to manipulate
   const nodesRef = useRef<any[]>([]);
 
   const getDefByLabel = (label: string) => relationshipDefs.find(d => d.label === label);
   const getActiveDef = () => relationshipDefs.find(d => d.id === activeDefId);
 
-  // Helper for random Hex color
   const generateRandomHex = () => '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
 
-  // Helper to add new def
   const handleAddDef = () => {
     const newDef: RelationshipDef = {
         id: crypto.randomUUID(),
@@ -108,11 +111,10 @@ const RelationshipGraph: React.FC<Props> = ({
       }
       
       const updated = { ...editingGroup, characterIds: newIds };
-      setEditingGroup(updated); // Update local modal state
-      onUpdateGroup(updated); // Update app state
+      setEditingGroup(updated); 
+      onUpdateGroup(updated); 
   };
 
-  // Handle Zoom Slider Change
   const handleZoomSlider = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newScale = parseFloat(e.target.value);
     if (svgRef.current && zoomBehaviorRef.current) {
@@ -120,7 +122,6 @@ const RelationshipGraph: React.FC<Props> = ({
     }
   };
 
-  // Drag & Drop Handlers
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(true);
@@ -139,20 +140,29 @@ const RelationshipGraph: React.FC<Props> = ({
     }
   };
 
+  const confirmPendingAction = () => {
+    if (!pendingAction) return;
+    if (pendingAction.type === 'delete_group') {
+      onRemoveGroup(pendingAction.id);
+    } else if (pendingAction.type === 'delete_relationship') {
+      onRemoveRelationship(pendingAction.source, pendingAction.target);
+    } else if (pendingAction.type === 'delete_node') {
+      onRemoveNode(pendingAction.id);
+    }
+    setPendingAction(null);
+  };
+
   useEffect(() => {
     if (!svgRef.current || !containerRef.current) return;
 
     const width = containerRef.current.clientWidth;
-    const height = 600; // Fixed inner height
+    const height = 600; 
     
-    // Select SVG
     const svg = d3.select(svgRef.current)
       .attr("viewBox", [0, 0, width, height]);
 
-    // Clear previous content
     svg.selectAll("*").remove();
 
-    // 1. Defs (Arrows)
     const defs = svg.append("defs");
     [...relationshipDefs, {id: 'default', color: '#94a3b8'} as any].forEach(def => {
         defs.append("marker")
@@ -168,10 +178,8 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("d", "M0,-5L10,0L0,5");
     });
 
-    // 2. Container Group for Zooming
     const g = svg.append("g").attr("class", "content");
 
-    // 3. Zoom Behavior
     const zoom = d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.1, 4])
         .on("zoom", (event) => {
@@ -183,7 +191,6 @@ const RelationshipGraph: React.FC<Props> = ({
     svg.call(zoom);
     svg.call(zoom.scaleTo, zoomLevel);
 
-    // --- Data Preparation ---
     const missingLayouts: Record<string, {x: number, y: number}> = {};
     const safeLayout = layout || {};
 
@@ -211,18 +218,13 @@ const RelationshipGraph: React.FC<Props> = ({
     const activeIds = new Set(characters.map(c => c.id));
     const links = relationships.filter(r => activeIds.has(r.source) && activeIds.has(r.target));
 
-    // Groups Layers
     const groupLayer = g.append("g").attr("class", "groups");
     const linkGroup = g.append("g").attr("class", "links");
     const nodeGroup = g.append("g").attr("class", "nodes");
 
     const getNode = (id: string) => newNodes.find(n => n.id === id);
 
-    // --- RENDER ---
     const render = () => {
-        
-        // 1. Draw Groups (Background Circles/Hulls)
-        // Group Logic: Convex Hull or Circle
         const groupsData = characterGroups.map(group => {
             const memberNodes = group.characterIds.map(id => getNode(id)).filter(n => n !== undefined) as any[];
             if (memberNodes.length === 0) return null;
@@ -234,10 +236,8 @@ const RelationshipGraph: React.FC<Props> = ({
             if (points.length === 1) {
                 const [x, y] = points[0];
                 centroid = { x, y };
-                // Draw circle around single node
                 pathData = `M ${x}, ${y} m -35, 0 a 35,35 0 1,0 70,0 a 35,35 0 1,0 -70,0`; 
             } else if (points.length === 2) {
-                // Draw pill or just a wide line
                 const [p1, p2] = points;
                 centroid = { x: (p1[0]+p2[0])/2, y: (p1[1]+p2[1])/2 };
                 pathData = `M ${p1[0]},${p1[1]} L ${p2[0]},${p2[1]}`;
@@ -254,30 +254,25 @@ const RelationshipGraph: React.FC<Props> = ({
         }).filter(Boolean) as any[];
 
         const groupSelection = groupLayer.selectAll("g").data(groupsData, (d: any) => d.id);
-        
         const groupEnter = groupSelection.enter().append("g");
         
-        // Hull Shape
         groupEnter.append("path")
             .merge(groupSelection.select("path"))
             .attr("d", (d: any) => d.pathData)
             .attr("fill", (d: any) => d.color)
             .attr("fill-opacity", 0.2)
             .attr("stroke", (d: any) => d.color)
-            .attr("stroke-width", 40) // Thick stroke makes the hull look "padded"
+            .attr("stroke-width", 40) 
             .attr("stroke-opacity", 0.2)
             .attr("stroke-linejoin", "round")
             .attr("cursor", mode === 'delete' ? 'pointer' : 'default')
             .on("click", (e, d: any) => {
                 if (mode === 'delete') {
                     e.stopPropagation();
-                    if(confirm(`删除分组 "${d.label}"?`)) {
-                        onRemoveGroup(d.id);
-                    }
+                    setPendingAction({ type: 'delete_group', id: d.id, label: d.label });
                 }
             });
 
-        // Group Label
         groupEnter.append("text")
             .merge(groupSelection.select("text"))
             .text((d: any) => d.label)
@@ -294,9 +289,7 @@ const RelationshipGraph: React.FC<Props> = ({
             .on("click", (e, d: any) => {
                 e.stopPropagation();
                 if (mode === 'delete') {
-                     if(confirm(`删除分组 "${d.label}"?`)) {
-                        onRemoveGroup(d.id);
-                    }
+                    setPendingAction({ type: 'delete_group', id: d.id, label: d.label });
                 } else {
                     setEditingGroup(d);
                 }
@@ -304,10 +297,54 @@ const RelationshipGraph: React.FC<Props> = ({
             
         groupSelection.exit().remove();
 
-        // 2. Draw Links
-        linkGroup.selectAll("line")
+        // --- LINKS RENDER (OPTIMIZED CLICK RANGE) ---
+        
+        // 1. Ghost Hit Area Lines (Transparent & Wide)
+        linkGroup.selectAll("line.hit-area")
             .data(links)
             .join("line")
+            .attr("class", "hit-area")
+            .attr("x1", (d: any) => getNode(d.source)?.x || 0)
+            .attr("y1", (d: any) => getNode(d.source)?.y || 0)
+            .attr("x2", (d: any) => getNode(d.target)?.x || 0)
+            .attr("y2", (d: any) => getNode(d.target)?.y || 0)
+            .attr("stroke", "transparent")
+            .attr("stroke-width", 16) // Much wider hit area for easy clicking
+            .style("cursor", mode === 'delete' ? 'pointer' : 'default')
+            .on("mouseover", function(e, d: any) {
+                if (mode === 'delete') {
+                    // Find the sibling visible line to highlight it
+                    d3.select(this.parentNode).selectAll(`line.visible-line[data-link-id="${d.source}-${d.target}"]`)
+                        .attr("stroke-width", 4)
+                        .attr("stroke", "#ef4444");
+                }
+            })
+            .on("mouseout", function(e, d: any) {
+                if (mode === 'delete') {
+                    const def = getDefByLabel(d.relation);
+                    d3.select(this.parentNode).selectAll(`line.visible-line[data-link-id="${d.source}-${d.target}"]`)
+                        .attr("stroke-width", 2)
+                        .attr("stroke", def ? def.color : '#94a3b8');
+                }
+            })
+            .on("click", (e, d: any) => {
+                if (mode === 'delete') {
+                    e.stopPropagation();
+                    setPendingAction({ 
+                      type: 'delete_relationship', 
+                      source: d.source, 
+                      target: d.target, 
+                      relation: d.relation 
+                    });
+                }
+            });
+
+        // 2. Visible Lines (Aesthetic)
+        linkGroup.selectAll("line.visible-line")
+            .data(links)
+            .join("line")
+            .attr("class", "visible-line")
+            .attr("data-link-id", (d: any) => `${d.source}-${d.target}`)
             .attr("stroke-width", 2)
             .attr("stroke", (d: any) => {
                 const def = getDefByLabel(d.relation);
@@ -320,12 +357,14 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("x1", (d: any) => getNode(d.source)?.x || 0)
             .attr("y1", (d: any) => getNode(d.source)?.y || 0)
             .attr("x2", (d: any) => getNode(d.target)?.x || 0)
-            .attr("y2", (d: any) => getNode(d.target)?.y || 0);
+            .attr("y2", (d: any) => getNode(d.target)?.y || 0)
+            .style("pointer-events", "none"); // Let events fall through to hit-area
 
         // Link Text
-        linkGroup.selectAll("text")
+        linkGroup.selectAll("text.link-label")
             .data(links)
             .join("text")
+            .attr("class", "link-label")
             .text((d: any) => d.relation)
             .attr("font-size", "10px")
             .attr("fill", (d: any) => {
@@ -344,9 +383,10 @@ const RelationshipGraph: React.FC<Props> = ({
                 const s = getNode(d.source);
                 const t = getNode(d.target);
                 return s && t ? (s.y + t.y) / 2 : 0;
-            });
+            })
+            .style("pointer-events", "none");
 
-        // 3. Draw Nodes
+        // 3. Nodes Render
         const node = nodeGroup
             .selectAll("g")
             .data(newNodes)
@@ -356,7 +396,7 @@ const RelationshipGraph: React.FC<Props> = ({
             .on("click", (event, d: any) => {
                 if (mode === 'delete') {
                     event.stopPropagation();
-                    onRemoveNode(d.id);
+                    setPendingAction({ type: 'delete_node', id: d.id, name: d.name });
                 } else if (mode === 'connect') {
                     event.stopPropagation();
                     containerRef.current?.dispatchEvent(new CustomEvent('node-click', { detail: { id: d.id } }));
@@ -371,7 +411,6 @@ const RelationshipGraph: React.FC<Props> = ({
                 }
             });
 
-        // Node Circle
         node.selectAll("circle").remove(); 
         node.append("circle")
             .attr("r", 20)
@@ -384,7 +423,6 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("stroke-width", (d: any) => (mode === 'group' && selectedForGroup.has(d.id)) ? 4 : (d.id === selectedSource ? 4 : 2))
             .attr("stroke-dasharray", (d: any) => (mode === 'group' && selectedForGroup.has(d.id)) ? "4 2" : "none");
 
-        // Node Text
         node.selectAll("text").remove();
         node.append("text")
             .text((d: any) => d.name)
@@ -396,7 +434,6 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("font-weight", "bold")
             .style("pointer-events", "none");
 
-        // Drag Behavior
         const drag = d3.drag<any, any>()
             .filter(() => mode === 'move') 
             .on("start", () => {
@@ -419,7 +456,6 @@ const RelationshipGraph: React.FC<Props> = ({
 
   }, [characters, relationships, relationshipDefs, characterGroups, mode, selectedSource, layout, selectedForGroup]); 
 
-  // Listener for 'connect' mode
   useEffect(() => {
     const handleNodeClick = (e: CustomEvent) => {
         const id = e.detail.id;
@@ -445,7 +481,6 @@ const RelationshipGraph: React.FC<Props> = ({
 
   return (
     <div className="flex gap-4 flex-col lg:flex-row h-[600px] relative">
-        {/* Main Graph */}
         <div 
             ref={containerRef}
             onDragOver={handleDragOver}
@@ -459,7 +494,6 @@ const RelationshipGraph: React.FC<Props> = ({
         >
             <svg ref={svgRef} className="w-full h-full block touch-none" />
             
-            {/* Controls Overlay */}
             <div className="absolute bottom-4 right-4 bg-slate-900/90 backdrop-blur p-2 rounded-lg border border-slate-700 flex flex-col gap-2 items-center shadow-xl z-10">
                  <div className="flex items-center justify-center text-slate-400">
                     <ZoomIn size={16} />
@@ -475,7 +509,6 @@ const RelationshipGraph: React.FC<Props> = ({
                  </div>
             </div>
 
-            {/* Mode Instructions */}
             {mode === 'connect' && (
                 <div className="absolute top-4 left-4 bg-blue-900/80 backdrop-blur px-3 py-1.5 rounded-full border border-blue-500/50 text-blue-200 text-xs font-bold pointer-events-none animate-pulse">
                     {selectedSource ? "点击另一个角色以连线" : "点击起始角色"}
@@ -483,7 +516,7 @@ const RelationshipGraph: React.FC<Props> = ({
             )}
             {mode === 'delete' && (
                 <div className="absolute top-4 left-4 bg-red-900/80 backdrop-blur px-3 py-1.5 rounded-full border border-red-500/50 text-red-200 text-xs font-bold pointer-events-none animate-pulse flex items-center gap-2">
-                    <Trash2 size={12} /> 点击人物或分组标签移除
+                    <Trash2 size={12} /> 点击人物、关系连线或分组标签移除
                 </div>
             )}
             {mode === 'group' && (
@@ -501,16 +534,9 @@ const RelationshipGraph: React.FC<Props> = ({
                     )}
                 </div>
             )}
-            {mode === 'move' && characterGroups.length > 0 && (
-                 <div className="absolute top-4 left-4 bg-slate-900/50 backdrop-blur px-3 py-1.5 rounded-full border border-slate-700 text-slate-400 text-xs pointer-events-none">
-                    提示: 点击分组标签可管理成员
-                 </div>
-            )}
         </div>
 
-        {/* Control Panel */}
         <div className="w-full lg:w-64 flex flex-col gap-4">
-            {/* Mode Switch */}
             <div className="bg-slate-800 p-1 rounded-lg flex border border-slate-700">
                 <button 
                     onClick={() => { setMode('move'); setSelectedSource(null); setSelectedForGroup(new Set()); }}
@@ -542,7 +568,6 @@ const RelationshipGraph: React.FC<Props> = ({
                 </button>
             </div>
 
-            {/* Relationship Palette */}
             <div className="bg-slate-800 rounded-lg border border-slate-700 flex flex-col overflow-hidden flex-1">
                 <div className="p-3 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
                     <h3 className="text-xs font-bold text-slate-400 uppercase">关系类型 (画笔)</h3>
@@ -586,7 +611,38 @@ const RelationshipGraph: React.FC<Props> = ({
             </div>
         </div>
 
-        {/* Create Group Modal */}
+        {pendingAction && (
+          <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+            <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30">
+                  <AlertTriangle className="text-red-500" size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-white mb-2">确认删除?</h3>
+                <p className="text-slate-400 text-sm leading-relaxed mb-6">
+                  {pendingAction.type === 'delete_group' && `确定要移除分组 "${pendingAction.label}" 吗？此操作不可撤销。`}
+                  {pendingAction.type === 'delete_relationship' && `确定要删除 "${characters.find(c => c.id === pendingAction.source)?.name}" 与 "${characters.find(c => c.id === pendingAction.target)?.name}" 之间的 "${pendingAction.relation}" 连线吗？`}
+                  {pendingAction.type === 'delete_node' && `确定要从图中移除角色 "${pendingAction.name}" 吗？这也会删除其相关连线。`}
+                </p>
+                <div className="flex gap-3">
+                  <button 
+                    onClick={() => setPendingAction(null)}
+                    className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all"
+                  >
+                    取消
+                  </button>
+                  <button 
+                    onClick={confirmPendingAction}
+                    className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95"
+                  >
+                    确认
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {isGroupModalOpen && (
             <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-lg">
                 <div className="bg-slate-800 border border-slate-600 rounded-xl p-4 w-64 shadow-2xl animate-in zoom-in-95">
@@ -616,7 +672,6 @@ const RelationshipGraph: React.FC<Props> = ({
             </div>
         )}
 
-        {/* Edit Group Modal (Manage Members) */}
         {editingGroup && (
             <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                 <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-md animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
@@ -629,7 +684,6 @@ const RelationshipGraph: React.FC<Props> = ({
                     </div>
                     
                     <div className="p-4 space-y-4 overflow-y-auto">
-                        {/* Basic Info */}
                         <div className="flex gap-2">
                             <input 
                                 value={editingGroup.label}
@@ -652,7 +706,6 @@ const RelationshipGraph: React.FC<Props> = ({
                             />
                         </div>
 
-                        {/* Current Members */}
                         <div>
                             <label className="text-xs font-bold text-slate-400 mb-2 block uppercase">组成员</label>
                             <div className="flex flex-wrap gap-2">
@@ -674,7 +727,6 @@ const RelationshipGraph: React.FC<Props> = ({
                             </div>
                         </div>
 
-                        {/* Add Members */}
                         <div>
                             <label className="text-xs font-bold text-slate-400 mb-2 block uppercase">添加成员</label>
                             <div className="grid grid-cols-2 gap-2 max-h-40 overflow-y-auto custom-scrollbar border border-slate-700/50 rounded p-2 bg-slate-900/30">
@@ -688,9 +740,6 @@ const RelationshipGraph: React.FC<Props> = ({
                                         <Plus size={14} className="text-slate-500 group-hover:text-green-400" />
                                     </button>
                                 ))}
-                                {characters.filter(c => !editingGroup.characterIds.includes(c.id)).length === 0 && (
-                                    <div className="col-span-2 text-center text-slate-500 text-xs py-2">所有角色已在组内</div>
-                                )}
                             </div>
                         </div>
                     </div>
