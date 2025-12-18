@@ -257,7 +257,7 @@ const RelationshipGraph: React.FC<Props> = ({
         const groupEnter = groupSelection.enter().append("g");
         
         groupEnter.append("path")
-            .merge(groupSelection.select("path"))
+            .merge(groupSelection.select("path") as any)
             .attr("d", (d: any) => d.pathData)
             .attr("fill", (d: any) => d.color)
             .attr("fill-opacity", 0.2)
@@ -274,7 +274,7 @@ const RelationshipGraph: React.FC<Props> = ({
             });
 
         groupEnter.append("text")
-            .merge(groupSelection.select("text"))
+            .merge(groupSelection.select("text") as any)
             .text((d: any) => d.label)
             .attr("x", (d: any) => d.centroid.x)
             .attr("y", (d: any) => d.centroid.y)
@@ -309,20 +309,19 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("x2", (d: any) => getNode(d.target)?.x || 0)
             .attr("y2", (d: any) => getNode(d.target)?.y || 0)
             .attr("stroke", "transparent")
-            .attr("stroke-width", 16) // Much wider hit area for easy clicking
+            .attr("stroke-width", 20) // Even wider for better UX
             .style("cursor", mode === 'delete' ? 'pointer' : 'default')
-            .on("mouseover", function(e, d: any) {
+            .on("mouseover", (e, d: any) => {
                 if (mode === 'delete') {
-                    // Find the sibling visible line to highlight it
-                    d3.select(this.parentNode).selectAll(`line.visible-line[data-link-id="${d.source}-${d.target}"]`)
+                    linkGroup.selectAll(`line.visible-line[data-link-id="${d.source}-${d.target}"]`)
                         .attr("stroke-width", 4)
                         .attr("stroke", "#ef4444");
                 }
             })
-            .on("mouseout", function(e, d: any) {
+            .on("mouseout", (e, d: any) => {
                 if (mode === 'delete') {
                     const def = getDefByLabel(d.relation);
-                    d3.select(this.parentNode).selectAll(`line.visible-line[data-link-id="${d.source}-${d.target}"]`)
+                    linkGroup.selectAll(`line.visible-line[data-link-id="${d.source}-${d.target}"]`)
                         .attr("stroke-width", 2)
                         .attr("stroke", def ? def.color : '#94a3b8');
                 }
@@ -358,7 +357,7 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("y1", (d: any) => getNode(d.source)?.y || 0)
             .attr("x2", (d: any) => getNode(d.target)?.x || 0)
             .attr("y2", (d: any) => getNode(d.target)?.y || 0)
-            .style("pointer-events", "none"); // Let events fall through to hit-area
+            .style("pointer-events", "none"); 
 
         // Link Text
         linkGroup.selectAll("text.link-label")
@@ -457,7 +456,7 @@ const RelationshipGraph: React.FC<Props> = ({
   }, [characters, relationships, relationshipDefs, characterGroups, mode, selectedSource, layout, selectedForGroup]); 
 
   useEffect(() => {
-    const handleNodeClick = (e: CustomEvent) => {
+    const handleNodeClick = (e: any) => {
         const id = e.detail.id;
         if (selectedSource === null) {
             setSelectedSource(id);
@@ -474,8 +473,8 @@ const RelationshipGraph: React.FC<Props> = ({
 
     const el = containerRef.current;
     if (el) {
-        el.addEventListener('node-click', handleNodeClick as EventListener);
-        return () => el.removeEventListener('node-click', handleNodeClick as EventListener);
+        el.addEventListener('node-click', handleNodeClick);
+        return () => el.removeEventListener('node-click', handleNodeClick);
     }
   }, [selectedSource, activeDefId, relationshipDefs, onAddRelationship]);
 
