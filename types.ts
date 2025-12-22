@@ -38,7 +38,7 @@ export interface Clue {
 }
 
 export interface Alibi {
-  character_id: string;
+  character_ids: string[]; // Changed from character_id to support multiple characters
   time_period: string;
   location: string;
   status: '确凿' | '模糊' | '无证明';

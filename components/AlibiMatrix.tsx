@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { Alibi, Character } from '../types';
-import { CheckCircle2, HelpCircle, XCircle, Plus, Trash2, Edit3, X, User, Clock, MapPin, AlignLeft, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, HelpCircle, XCircle, Plus, Trash2, Edit3, X, Users, Clock, MapPin, AlignLeft, ShieldCheck, Check } from 'lucide-react';
 
 interface Props {
   alibis: Alibi[];
@@ -15,7 +16,7 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   
   // Form State
-  const [charId, setCharId] = useState('');
+  const [selectedCharIds, setSelectedCharIds] = useState<string[]>([]);
   const [timePeriod, setTimePeriod] = useState('');
   const [location, setLocation] = useState('');
   const [status, setStatus] = useState<Alibi['status']>('模糊');
@@ -23,7 +24,7 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
 
   const handleOpenAdd = () => {
     setEditingIndex(null);
-    setCharId(characters[0]?.id || '');
+    setSelectedCharIds([]);
     setTimePeriod('');
     setLocation('');
     setStatus('模糊');
@@ -33,7 +34,7 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
 
   const handleOpenEdit = (alibi: Alibi, index: number) => {
     setEditingIndex(index);
-    setCharId(alibi.character_id);
+    setSelectedCharIds(alibi.character_ids || []);
     setTimePeriod(alibi.time_period);
     setLocation(alibi.location);
     setStatus(alibi.status);
@@ -41,11 +42,17 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
     setIsModalOpen(true);
   };
 
+  const toggleCharacter = (id: string) => {
+    setSelectedCharIds(prev => 
+      prev.includes(id) ? prev.filter(cid => cid !== id) : [...prev, id]
+    );
+  };
+
   const handleSubmit = () => {
-    if (!charId || !timePeriod || !location) return;
+    if (selectedCharIds.length === 0 || !timePeriod || !location) return;
 
     const alibiData: Alibi = {
-      character_id: charId,
+      character_ids: selectedCharIds,
       time_period: timePeriod,
       location,
       status,
@@ -60,7 +67,10 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
     setIsModalOpen(false);
   };
 
-  const getCharacterName = (id: string) => characters.find(c => c.id === id)?.name || "未知角色";
+  const getCharacterNames = (ids: string[]) => {
+    if (!ids || ids.length === 0) return "未知角色";
+    return ids.map(id => characters.find(c => c.id === id)?.name || "未知").join(', ');
+  };
 
   const getStatusIcon = (status: Alibi['status']) => {
     switch(status) {
@@ -86,7 +96,7 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
         <table className="w-full text-left text-sm text-slate-300">
           <thead className="bg-slate-900/80 text-slate-400 uppercase font-bold text-[11px] tracking-wider">
             <tr>
-              <th className="px-6 py-4">角色</th>
+              <th className="px-6 py-4">角色成员</th>
               <th className="px-6 py-4">时间段</th>
               <th className="px-6 py-4">地点</th>
               <th className="px-6 py-4">状态</th>
@@ -107,7 +117,19 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
             ) : (
               alibis.map((alibi, idx) => (
                 <tr key={idx} className="hover:bg-slate-700/30 transition-colors group">
-                  <td className="px-6 py-4 font-bold text-blue-300">{getCharacterName(alibi.character_id)}</td>
+                  <td className="px-6 py-4 font-bold text-blue-300 max-w-xs">
+                    <div className="flex flex-wrap gap-1">
+                      {(alibi.character_ids || []).map(cid => {
+                        const name = characters.find(c => c.id === cid)?.name || "未知";
+                        return (
+                          <span key={cid} className="bg-blue-900/40 text-blue-200 px-2 py-0.5 rounded border border-blue-700/50 text-[10px] whitespace-nowrap">
+                            {name}
+                          </span>
+                        );
+                      })}
+                      {(!alibi.character_ids || alibi.character_ids.length === 0) && "未知角色"}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 font-mono text-slate-400">{alibi.time_period}</td>
                   <td className="px-6 py-4">{alibi.location}</td>
                   <td className="px-6 py-4">
@@ -158,19 +180,33 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={24}/></button>
             </div>
             
-            <div className="p-6 space-y-5">
+            <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar">
               <div className="space-y-2">
-                <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-                  <User size={14} /> 涉及角色 <span className="text-red-500">*</span>
+                <label className="text-xs font-bold text-slate-500 uppercase flex items-center justify-between">
+                  <span className="flex items-center gap-2"><Users size={14} /> 涉及角色 <span className="text-red-500">*</span></span>
+                  <span className="text-[10px] text-slate-400 font-normal">已选 {selectedCharIds.length} 位</span>
                 </label>
-                <select 
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-purple-500 outline-none transition-all"
-                  value={charId}
-                  onChange={(e) => setCharId(e.target.value)}
-                >
-                  <option value="" disabled>选择角色...</option>
-                  {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <div className="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden">
+                   <div className="max-h-32 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                     {characters.map(c => (
+                       <button
+                         key={c.id}
+                         onClick={() => toggleCharacter(c.id)}
+                         className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm transition-all ${
+                           selectedCharIds.includes(c.id) 
+                           ? 'bg-purple-900/30 text-purple-200 border border-purple-500/30' 
+                           : 'text-slate-400 hover:bg-slate-800 border border-transparent'
+                         }`}
+                       >
+                         <span className="truncate">{c.name}</span>
+                         {selectedCharIds.includes(c.id) && <Check size={14} className="text-purple-400" />}
+                       </button>
+                     ))}
+                     {characters.length === 0 && (
+                       <div className="p-4 text-center text-xs text-slate-600 italic">请先在侧边栏添加人物</div>
+                     )}
+                   </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -241,7 +277,7 @@ const AlibiMatrix: React.FC<Props> = ({ alibis, characters, onAddAlibi, onUpdate
               </button>
               <button 
                 onClick={handleSubmit}
-                disabled={!charId || !timePeriod || !location}
+                disabled={selectedCharIds.length === 0 || !timePeriod || !location}
                 className="px-8 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold shadow-lg shadow-purple-900/20 transition-all active:scale-95"
               >
                 {editingIndex !== null ? '保存修改' : '确认录入'}

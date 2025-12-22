@@ -164,7 +164,10 @@ const App: React.FC = () => {
           ...g,
           characterIds: g.characterIds.filter(id => id !== charId)
         })).filter(g => g.characterIds.length > 0),
-        alibis: prev.alibis.filter(a => a.character_id !== charId),
+        alibis: prev.alibis.map(a => ({
+          ...a,
+          character_ids: a.character_ids.filter(id => id !== charId)
+        })).filter(a => a.character_ids.length > 0), // Filter out alibis with no characters left
         timelineData: updatedTimelineData
       };
     });
@@ -679,7 +682,7 @@ const App: React.FC = () => {
 
       {showExportModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
-          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-lg overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
               <h3 className="text-xl font-bold text-white flex items-center gap-3"><Save className="text-blue-400" size={24} />导出/保存档案</h3>
               <button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
