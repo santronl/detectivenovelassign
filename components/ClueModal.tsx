@@ -41,7 +41,7 @@ const ClueModal: React.FC<Props> = ({ isOpen, editingClue, onClose, onSave }) =>
     if (file) {
       setIsCompressing(true);
       try {
-        const base64 = await compressImage(file, 600, 0.5);
+        const base64 = await compressImage(file, 800, 0.6);
         setClueImageUrl(base64);
       } catch (err) {
         console.error("Image processing failed", err);
@@ -66,75 +66,125 @@ const ClueModal: React.FC<Props> = ({ isOpen, editingClue, onClose, onSave }) =>
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-      <div className="bg-slate-800 rounded-2xl border border-slate-600 shadow-2xl w-full max-w-md my-8 animate-in fade-in zoom-in-95 duration-200 overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/75 backdrop-blur-md p-4 overflow-y-auto">
+      <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-4xl animate-in fade-in zoom-in-95 duration-200 overflow-hidden flex flex-col">
+        {/* Header */}
         <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-          <h3 className="text-lg font-bold text-white flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-lg">
-              <Search size={20} className="text-white" />
+          <h3 className="text-xl font-bold text-white flex items-center gap-3">
+            <div className="p-2 bg-amber-500 rounded-xl shadow-lg shadow-amber-900/20">
+              <Search size={22} className="text-slate-900" />
             </div>
             {editingClue ? '编辑证物档案' : '录入新证物'}
           </h3>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors"><X size={24}/></button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white p-2 hover:bg-slate-700 rounded-full transition-all">
+            <X size={24}/>
+          </button>
         </div>
         
-        <div className="p-6 space-y-5 overflow-y-auto max-h-[70vh] custom-scrollbar">
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-              <ImageIcon size={14} /> 证物图像 (自动压缩)
+        {/* Main Content Split Layout */}
+        <div className="p-8 flex flex-col md:flex-row gap-8 overflow-y-auto max-h-[75vh] custom-scrollbar">
+          
+          {/* Left Side: Image Upload (Occupies roughly 40%) */}
+          <div className="w-full md:w-5/12 flex flex-col gap-3">
+            <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+              <ImageIcon size={14} /> 证物图像实录
             </label>
             <div 
               onClick={() => fileInputRef.current?.click()}
-              className={`relative group aspect-video w-full rounded-xl border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center overflow-hidden
-                ${clueImageUrl ? 'border-blue-500/50 bg-slate-900' : 'border-slate-700 hover:border-blue-500/50 bg-slate-900/50 hover:bg-slate-900'}
+              className={`relative group aspect-square w-full rounded-2xl border-2 border-dashed transition-all cursor-pointer flex flex-col items-center justify-center overflow-hidden
+                ${clueImageUrl ? 'border-amber-500/30 bg-slate-900 shadow-inner' : 'border-slate-700 hover:border-amber-500/50 bg-slate-900/50 hover:bg-slate-900'}
               `}
             >
               <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
               {isCompressing ? (
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="animate-spin text-blue-500" size={32} />
-                  <span className="text-xs text-slate-400">优化中...</span>
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="animate-spin text-amber-500" size={40} />
+                  <span className="text-xs text-slate-400 font-medium">深度扫描图像中...</span>
                 </div>
               ) : clueImageUrl ? (
                 <>
-                  <img src={clueImageUrl} alt="preview" className="w-full h-full object-contain" />
-                  <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-3">
-                    <div className="p-2 bg-white/10 rounded-full text-white backdrop-blur"><Camera size={20} /></div>
-                    <button onClick={(e) => { e.stopPropagation(); setClueImageUrl(undefined); }} className="p-2 bg-red-500/80 rounded-full text-white backdrop-blur hover:bg-red-500"><Trash2 size={20} /></button>
+                  <img src={clueImageUrl} alt="preview" className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                    <div className="p-3 bg-white/10 rounded-full text-white backdrop-blur-md border border-white/20"><Camera size={24} /></div>
+                    <button 
+                      onClick={(e) => { e.stopPropagation(); setClueImageUrl(undefined); }} 
+                      className="p-3 bg-red-500/80 rounded-full text-white backdrop-blur-md hover:bg-red-600 transition-colors border border-red-400/20"
+                    >
+                      <Trash2 size={24} />
+                    </button>
                   </div>
                 </>
               ) : (
-                <div className="flex flex-col items-center gap-2 text-slate-500 group-hover:text-blue-400 transition-colors">
-                  <Camera size={32} strokeWidth={1.5} />
-                  <span className="text-xs font-medium">点击上传照片</span>
+                <div className="flex flex-col items-center gap-3 text-slate-500 group-hover:text-amber-400 transition-colors">
+                  <Camera size={48} strokeWidth={1} className="opacity-40" />
+                  <span className="text-xs font-bold uppercase tracking-tighter">点击上传实勘照片</span>
                 </div>
               )}
             </div>
+            <p className="text-[10px] text-slate-600 text-center italic">支持主流图像格式，上传后将自动进行数据脱敏与尺寸优化</p>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-              <Search size={14} /> 证物名称 <span className="text-red-500">*</span>
-            </label>
-            <input className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={clueName} onChange={(e) => setClueName(e.target.value)} placeholder="例如: 消失的凶器" autoFocus />
+          {/* Right Side: Details & Remarks (Occupies remaining 60%) */}
+          <div className="w-full md:w-7/12 flex flex-col gap-6">
+            
+            {/* Top Row: Name & Location (Compact) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 shrink-0">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                  <Search size={12} /> 证物全称 <span className="text-amber-500">*</span>
+                </label>
+                <input 
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm font-bold focus:ring-2 focus:ring-amber-500/50 outline-none transition-all placeholder:text-slate-700" 
+                  value={clueName} 
+                  onChange={(e) => setClueName(e.target.value)} 
+                  placeholder="请输入证物描述..." 
+                  autoFocus 
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                  <MapPin size={12} /> 发现位置
+                </label>
+                <input 
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white text-sm focus:ring-2 focus:ring-amber-500/50 outline-none transition-all placeholder:text-slate-700" 
+                  value={clueLocation} 
+                  onChange={(e) => setClueLocation(e.target.value)} 
+                  placeholder="具体发现位置..." 
+                />
+              </div>
+            </div>
+
+            {/* Bottom Section: Remarks (Main Area) */}
+            <div className="flex-1 flex flex-col gap-2 min-h-[250px]">
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2">
+                <AlignLeft size={14} /> 证物详记 / 逻辑推论
+              </label>
+              <textarea 
+                className="flex-1 w-full bg-slate-900 border border-slate-700 rounded-2xl p-5 text-white text-sm leading-relaxed focus:ring-2 focus:ring-amber-500/50 outline-none resize-none transition-all custom-scrollbar placeholder:text-slate-800 font-mono" 
+                value={clueDesc} 
+                onChange={(e) => setClueDesc(e.target.value)} 
+                placeholder="在此记录该证物的物理特征、关联人物、或是目前的疑点..."
+              />
+            </div>
           </div>
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-              <MapPin size={14} /> 发现地点
-            </label>
-            <input className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all" value={clueLocation} onChange={(e) => setClueLocation(e.target.value)} placeholder="地点描述" />
-          </div>
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-slate-500 uppercase flex items-center gap-2">
-              <AlignLeft size={14} /> 备注
-            </label>
-            <textarea className="w-full h-24 bg-slate-900 border border-slate-700 rounded-xl p-3 text-white text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none transition-all" value={clueDesc} onChange={(e) => setClueDesc(e.target.value)} />
-          </div>
+
         </div>
 
-        <div className="p-4 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/20">
-          <button onClick={onClose} className="px-6 py-2.5 text-slate-400 hover:text-white text-sm">取消</button>
-          <button onClick={handleSubmit} disabled={!clueName.trim()} className="px-8 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white rounded-xl text-sm font-bold transition-all">保存</button>
+        {/* Footer Actions */}
+        <div className="p-6 border-t border-slate-700 flex justify-end gap-4 bg-slate-900/30">
+          <button 
+            onClick={onClose} 
+            className="px-8 py-3 text-slate-400 hover:text-white text-sm font-bold transition-colors"
+          >
+            废弃更改
+          </button>
+          <button 
+            onClick={handleSubmit} 
+            disabled={!clueName.trim()} 
+            className="px-12 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-30 disabled:grayscale text-slate-900 rounded-2xl text-sm font-black shadow-xl shadow-amber-900/20 transition-all active:scale-95"
+          >
+            存档记录
+          </button>
         </div>
       </div>
     </div>

@@ -544,6 +544,9 @@ const App: React.FC = () => {
                           </div>
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors" title="查看证物信息">
+                            <Info size={14} />
+                          </button>
                           <button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-600 rounded transition-colors">
                             <Edit3 size={14} />
                           </button>
@@ -645,6 +648,7 @@ const App: React.FC = () => {
                 onUpdatePlacements={(tid, p) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: p } }))}
                 onUpdateItemPlacements={(tid, p) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: p } }))}
                 onAddClue={handleSaveClue}
+                onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }}
               />
             )}
           </div>

@@ -28,6 +28,7 @@ interface Props {
   onUpdatePlacements: (timeId: string, placements: CharacterPlacement[]) => void;
   onUpdateItemPlacements: (timeId: string, placements: ItemPlacement[]) => void;
   onAddClue: (clue: Clue) => void; 
+  onOpenClueModal?: (clue: Clue) => void;
 }
 
 const generateId = () => {
@@ -41,7 +42,8 @@ const MapCanvas: React.FC<Props> = ({
     maps, currentMapId, spaces, clues,
     timePoints, currentTimeId, timelineData, itemTimelineData = {}, characters,
     onUpdateMaps, onDeleteMap, onCreateMap, onSelectMap, onUpdateSpaces,
-    onUpdateTimePoints, onSelectTime, onUpdatePlacements, onUpdateItemPlacements, onAddClue
+    onUpdateTimePoints, onSelectTime, onUpdatePlacements, onUpdateItemPlacements, onAddClue,
+    onOpenClueModal
 }) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
@@ -377,7 +379,15 @@ const MapCanvas: React.FC<Props> = ({
                         const clue = clues.find(c => c.id === p.clueId);
                         if (!clue) return null;
                         return (
-                            <div key={p.clueId} draggable onDragStart={(e) => handleItemDragStart(e, p.clueId)} onContextMenu={(e) => { e.preventDefault(); onUpdateItemPlacements(currentTimeId, currentItemPlacements.filter(x => x.clueId !== p.clueId)); }} className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-20" style={{ left: `${p.x}%`, top: `${p.y}%` }}>
+                            <div 
+                              key={p.clueId} 
+                              draggable 
+                              onDragStart={(e) => handleItemDragStart(e, p.clueId)} 
+                              onDoubleClick={(e) => { e.stopPropagation(); onOpenClueModal?.(clue); }}
+                              onContextMenu={(e) => { e.preventDefault(); onUpdateItemPlacements(currentTimeId, currentItemPlacements.filter(x => x.clueId !== p.clueId)); }} 
+                              className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-20" 
+                              style={{ left: `${p.x}%`, top: `${p.y}%` }}
+                            >
                                 <div className="w-7 h-7 bg-amber-500 rotate-45 border-2 border-amber-900/50 shadow-lg flex items-center justify-center relative">
                                     <div className="-rotate-45 text-amber-900">
                                         <Package size={14} strokeWidth={3} />
