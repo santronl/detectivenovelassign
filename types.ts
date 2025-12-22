@@ -6,6 +6,7 @@ export interface Character {
   role?: string;
   description?: string;
   note?: string; 
+  imageId?: string; // 引用存储在 IndexedDB 中的图片 ID
 }
 
 export interface Relationship {
@@ -32,33 +33,36 @@ export interface LocationItem {
   id: string;
   name: string;
   note?: string;
+  clueId?: string; 
 }
 
 export interface Location {
   id: string;
   name: string;
   note?: string;
-  mapId?: string;   // 关联的地图层 ID
-  spaceId?: string; // 关联的地图具体区域 ID
-  items?: LocationItem[]; // 新增：室内物品清单
+  mapId?: string;   
+  spaceId?: string; 
+  items?: LocationItem[]; 
+  imageId?: string; 
 }
 
 export interface Clue {
   id: string;
   name: string;
   found_location: string;
-  locationId?: string; // 关联的地点 ID
+  locationId?: string; 
+  locationItemId?: string; 
   status: '未解决' | '已解释' | '误导项';
   description?: string;
-  imageUrl?: string; 
+  imageId?: string; 
 }
 
 export interface Alibi {
   character_ids: string[];
   time_period: string;
   timePointId?: string; 
-  location: string;    // 显示文本
-  locationId?: string; // 关联的地点 ID
+  location: string;    
+  locationId?: string; 
   status: '确凿' | '模糊' | '无证明';
   details?: string;
 }
@@ -71,7 +75,7 @@ export interface Point {
 export interface MapDoc {
   id: string;
   name: string;
-  imageUrl?: string;
+  imageId?: string;
 }
 
 export interface Space {

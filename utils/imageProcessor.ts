@@ -1,12 +1,12 @@
 
 /**
- * 图像压缩工具类 - 内存安全版
+ * 图像压缩工具类 - 内存安全版 (返回 Blob)
  */
 export const compressImage = (
   file: File,
-  maxWidth: number = 600, // 默认证物尺寸降至 600
-  quality: number = 0.5   // 质量降至 0.5 以平衡体积与可辨识度
-): Promise<string> => {
+  maxWidth: number = 800,
+  quality: number = 0.6
+): Promise<Blob> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -18,7 +18,6 @@ export const compressImage = (
         let width = img.width;
         let height = img.height;
 
-        // 计算缩放比例
         if (width > height) {
           if (width > maxWidth) {
             height *= maxWidth / width;
@@ -39,19 +38,19 @@ export const compressImage = (
           return;
         }
 
-        // 使用高质量缩放插值
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        // 优先使用 webp (体积最小)，其次 jpeg
-        const dataUrl = canvas.toDataURL('image/webp', quality) || canvas.toDataURL('image/jpeg', quality);
-        
-        // 显式清理内存
-        canvas.width = 0;
-        canvas.height = 0;
-        
-        resolve(dataUrl);
+        canvas.toBlob((blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Canvas toBlob failed'));
+          }
+          canvas.width = 0;
+          canvas.height = 0;
+        }, 'image/webp', quality);
       };
       img.onerror = (err) => reject(err);
     };

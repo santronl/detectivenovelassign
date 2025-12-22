@@ -1,16 +1,18 @@
 
 import React, { useState } from 'react';
-import { Clue } from '../types';
-import { Archive, AlertCircle, HelpCircle, Plus, Trash2, X, Search, Edit3, MapPin, Maximize2 } from 'lucide-react';
+import { Clue, Location } from '../types';
+import { Archive, AlertCircle, HelpCircle, Plus, Trash2, X, Search, Edit3, MapPin, Maximize2, Package, Link as LinkIcon } from 'lucide-react';
 
 interface Props {
   clues: Clue[];
+  locations: Location[];
+  blobUrls: Record<string, string>; // 新增
   onOpenModal: (clue: Clue | null) => void;
   onUpdateStatus: (clueId: string, status: Clue['status']) => void;
   onDeleteClue: (clueId: string) => void;
 }
 
-const EvidenceBoard: React.FC<Props> = ({ clues, onOpenModal, onUpdateStatus, onDeleteClue }) => {
+const EvidenceBoard: React.FC<Props> = ({ clues, locations, blobUrls, onOpenModal, onUpdateStatus, onDeleteClue }) => {
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   
@@ -78,7 +80,10 @@ const EvidenceBoard: React.FC<Props> = ({ clues, onOpenModal, onUpdateStatus, on
                 </div>
                 
                 <div className="space-y-4 flex-1 overflow-y-auto custom-scrollbar pr-1">
-                    {clues.filter(c => c.status === col.status).map(clue => (
+                    {clues.filter(c => c.status === col.status).map(clue => {
+                    const isLinked = !!clue.locationId;
+                    const imageUrl = clue.imageId ? blobUrls[clue.imageId] : null;
+                    return (
                     <div 
                         key={clue.id} 
                         draggable
@@ -87,37 +92,47 @@ const EvidenceBoard: React.FC<Props> = ({ clues, onOpenModal, onUpdateStatus, on
                     >
                         <div className="flex items-start justify-between">
                             <div className="flex flex-col gap-1 pr-12">
-                                <h3 className="font-bold text-slate-100 leading-tight">{clue.name}</h3>
+                                <h3 className="font-bold text-slate-100 leading-tight flex items-center gap-1.5">
+                                    {isLinked && <LinkIcon size={12} className="text-emerald-500" />}
+                                    {clue.name}
+                                </h3>
                                 <div className="flex items-center gap-2 text-[10px] text-slate-500 font-medium">
-                                    <MapPin size={10} className="text-blue-500/70" />
-                                    <span>{clue.found_location}</span>
+                                    {isLinked ? (
+                                        <div className="flex items-center gap-1 text-emerald-500/80">
+                                            <Package size={10} />
+                                            <span>{clue.found_location}</span>
+                                        </div>
+                                    ) : (
+                                        <div className="flex items-center gap-1">
+                                            <MapPin size={10} className="text-blue-500/70" />
+                                            <span>{clue.found_location}</span>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="absolute top-3 right-3 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                 <button 
                                     onClick={() => onOpenModal(clue)}
                                     className="p-1.5 bg-slate-800 border border-slate-600 text-slate-400 hover:text-blue-400 rounded-lg transition-colors"
-                                    title="编辑详情"
                                 >
                                     <Edit3 size={14} />
                                 </button>
                                 <button 
                                     onClick={() => onDeleteClue(clue.id)}
                                     className="p-1.5 bg-slate-800 border border-slate-600 text-slate-400 hover:text-red-400 rounded-lg transition-colors"
-                                    title="销毁记录"
                                 >
                                     <Trash2 size={14} />
                                 </button>
                             </div>
                         </div>
 
-                        {clue.imageUrl && (
+                        {imageUrl && (
                             <div 
-                                onClick={() => setPreviewImage(clue.imageUrl!)}
+                                onClick={() => setPreviewImage(imageUrl)}
                                 className="mt-3 relative aspect-video w-full rounded-lg overflow-hidden bg-slate-900 border border-slate-700/50 cursor-zoom-in group/img"
                             >
                                 <img 
-                                    src={clue.imageUrl} 
+                                    src={imageUrl} 
                                     alt={clue.name} 
                                     loading="lazy"
                                     className="w-full h-full object-cover group-hover/img:scale-105 transition-transform duration-500" 
@@ -136,7 +151,7 @@ const EvidenceBoard: React.FC<Props> = ({ clues, onOpenModal, onUpdateStatus, on
                             </div>
                         )}
                     </div>
-                    ))}
+                    )})}
                 </div>
             </div>
         ))}

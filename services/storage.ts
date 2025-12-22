@@ -3,9 +3,10 @@ import { AppState } from "../types";
 
 const DB_NAME = 'MysteryMindDB';
 const STORE_NAME = 'state_store';
+const IMAGE_STORE = 'image_blobs';
 const HANDLE_KEY = 'file_handle_link';
 const STATE_KEY = 'current_working_state';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // 升级版本以支持新仓库
 
 export const openDB = (): Promise<IDBDatabase> => {
   return new Promise((resolve, reject) => {
@@ -15,6 +16,9 @@ export const openDB = (): Promise<IDBDatabase> => {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
+      }
+      if (!db.objectStoreNames.contains(IMAGE_STORE)) {
+        db.createObjectStore(IMAGE_STORE);
       }
     };
 
@@ -48,9 +52,52 @@ export const loadFromIndexedDB = async (): Promise<AppState | null> => {
 };
 
 /**
- * Saves a FileSystemFileHandle to IndexedDB. 
- * FileHandles are serializable and can be persisted!
+ * 图片存储相关函数
  */
+export const saveImageToDB = async (id: string, blob: Blob): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(IMAGE_STORE, 'readwrite');
+    const store = transaction.objectStore(IMAGE_STORE);
+    const request = store.put(blob, id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const loadImageFromDB = async (id: string): Promise<Blob | null> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(IMAGE_STORE, 'readonly');
+    const store = transaction.objectStore(IMAGE_STORE);
+    const request = store.get(id);
+    request.onsuccess = () => resolve(request.result || null);
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const deleteImageFromDB = async (id: string): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(IMAGE_STORE, 'readwrite');
+    const store = transaction.objectStore(IMAGE_STORE);
+    const request = store.delete(id);
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  });
+};
+
+export const getAllImageIdsFromDB = async (): Promise<string[]> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction(IMAGE_STORE, 'readonly');
+    const store = transaction.objectStore(IMAGE_STORE);
+    const request = store.getAllKeys();
+    request.onsuccess = () => resolve(request.result as string[]);
+    request.onerror = () => reject(request.error);
+  });
+};
+
 export const saveFileHandle = async (handle: any): Promise<void> => {
   const db = await openDB();
   return new Promise((resolve, reject) => {

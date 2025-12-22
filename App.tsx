@@ -1,5 +1,6 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
 import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Clue, CharacterGroup, Alibi, Location } from './types';
 import RelationshipGraph from './components/RelationshipGraph';
@@ -8,7 +9,8 @@ import AlibiMatrix from './components/AlibiMatrix';
 import LocationList from './components/LocationList';
 import MapCanvas from './components/MapCanvas';
 import ClueModal from './components/ClueModal';
-import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle } from './services/storage';
+import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle, saveImageToDB, loadImageFromDB, getAllImageIdsFromDB, deleteImageFromDB } from './services/storage';
+import { compressImage } from './utils/imageProcessor';
 import { 
   Users, 
   Map as MapIcon, 
@@ -33,7 +35,11 @@ import {
   Package,
   Info,
   Plus,
-  MapPin
+  MapPin,
+  Camera,
+  User,
+  FileArchive,
+  ArrowUpCircle
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -44,8 +50,13 @@ const App: React.FC = () => {
   const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis' | 'locations'>('clues');
   const [sidebarTab, setSidebarTab] = useState<'characters' | 'clues'>('characters');
   
+  // 运行时图片 Blob URL 管理
+  const [blobUrls, setBlobUrls] = useState<Record<string, string>>({});
+  
   // Modals State
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
+  const [isCharImageLoading, setIsCharImageLoading] = useState(false);
+  const charFileInputRef = useRef<HTMLInputElement>(null);
   const [characterToDelete, setCharacterToDelete] = useState<Character | null>(null);
   const [editingClue, setEditingClue] = useState<Clue | null>(null);
   const [isClueModalOpen, setIsClueModalOpen] = useState(false);
@@ -58,6 +69,13 @@ const App: React.FC = () => {
   const isIframe = window.self !== window.top;
   const [fileHandle, setFileHandle] = useState<any | null>(null);
   const fileImportRef = useRef<HTMLInputElement>(null);
+
+  // 初始化时清理 URL，防止内存泄漏
+  useEffect(() => {
+    return () => {
+      Object.values(blobUrls).forEach(url => URL.revokeObjectURL(url));
+    };
+  }, []);
 
   useEffect(() => {
     if (statusMessage) {
@@ -73,6 +91,45 @@ const App: React.FC = () => {
     }
   }, [errorMessage]);
 
+  // 加载图片 Blob 并在运行时创建 URL
+  // Fix for TypeScript error on line 76: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+  // Using for...of loops which are more reliable for type narrowing in TypeScript compared to forEach callbacks.
+  const refreshBlobUrls = async (entities: AppState) => {
+    const ids = new Set<string>();
+    
+    if (entities.characters) {
+      for (const c of entities.characters) {
+        if (typeof c.imageId === 'string') ids.add(c.imageId);
+      }
+    }
+    if (entities.clues) {
+      for (const c of entities.clues) {
+        if (typeof c.imageId === 'string') ids.add(c.imageId);
+      }
+    }
+    if (entities.locations) {
+      for (const l of entities.locations) {
+        if (typeof l.imageId === 'string') ids.add(l.imageId);
+      }
+    }
+    if (entities.maps) {
+      for (const m of entities.maps) {
+        if (typeof m.imageId === 'string') ids.add(m.imageId);
+      }
+    }
+
+    const newUrls: Record<string, string> = { ...blobUrls };
+    for (const id of ids) {
+      if (!newUrls[id]) {
+        const blob = await loadImageFromDB(id);
+        if (blob) {
+          newUrls[id] = URL.createObjectURL(blob);
+        }
+      }
+    }
+    setBlobUrls(newUrls);
+  };
+
   useEffect(() => {
     const initStorage = async () => {
       try {
@@ -83,14 +140,8 @@ const App: React.FC = () => {
           setState({
             ...INITIAL_STATE,
             ...saved,
-            characters: saved.characters || [],
-            relationships: saved.relationships || [],
-            clues: saved.clues || [],
-            alibis: saved.alibis || [],
-            locations: saved.locations || [],
-            itemTimelineData: saved.itemTimelineData || {},
-            lastFileName: saved.lastFileName || null
           });
+          await refreshBlobUrls(saved);
         }
         
         if (savedHandle && !isIframe) {
@@ -108,18 +159,222 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isInitialized) return;
     const timeoutId = setTimeout(async () => {
-      try { await saveToIndexedDB(state); } catch (e) { console.error(e); }
+      try { 
+        await saveToIndexedDB(state); 
+      } catch (e) { console.error(e); }
     }, 2000); 
     return () => clearTimeout(timeoutId);
   }, [state, isInitialized]);
 
-  // Location Handlers
+  // 统一处理图片保存
+  const handleEntityImageSave = async (id: string, blob: Blob) => {
+    const imageId = `img_${crypto.randomUUID()}`;
+    await saveImageToDB(imageId, blob);
+    const url = URL.createObjectURL(blob);
+    setBlobUrls(prev => ({ ...prev, [imageId]: url }));
+    return imageId;
+  };
+
+  const handleCharImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && editingCharacter) {
+      setIsCharImageLoading(true);
+      try {
+        const blob = await compressImage(file, 400, 0.7);
+        const imageId = await handleEntityImageSave(editingCharacter.id, blob);
+        setEditingCharacter({ ...editingCharacter, imageId });
+      } catch (err) {
+        setErrorMessage("图片处理失败");
+      } finally {
+        setIsCharImageLoading(false);
+      }
+    }
+  };
+
+  // 迁移逻辑：将旧版 Base64 转换为 IndexedDB 存储
+  const migrateLegacyData = async (data: any): Promise<AppState> => {
+    const migrateImage = async (base64?: string) => {
+      if (!base64 || !base64.startsWith('data:')) return undefined;
+      try {
+        const response = await fetch(base64);
+        const blob = await response.blob();
+        const id = `img_migrated_${crypto.randomUUID()}`;
+        await saveImageToDB(id, blob);
+        return id;
+      } catch (e) {
+        console.error("Migration failed for image", e);
+        return undefined;
+      }
+    };
+
+    const newState = { ...INITIAL_STATE, ...data };
+
+    // 人物
+    if (newState.characters) {
+      for (const char of newState.characters) {
+        if (char.imageUrl && !char.imageId) {
+          char.imageId = await migrateImage(char.imageUrl);
+          delete char.imageUrl;
+        }
+      }
+    }
+    // 证物
+    if (newState.clues) {
+      for (const clue of newState.clues) {
+        if (clue.imageUrl && !clue.imageId) {
+          clue.imageId = await migrateImage(clue.imageUrl);
+          delete clue.imageUrl;
+        }
+      }
+    }
+    // 地点
+    if (newState.locations) {
+      for (const loc of newState.locations) {
+        if (loc.imageUrl && !loc.imageId) {
+          loc.imageId = await migrateImage(loc.imageUrl);
+          delete loc.imageId;
+        }
+      }
+    }
+    // 地图
+    if (newState.maps) {
+      for (const map of newState.maps) {
+        if (map.imageUrl && !map.imageId) {
+          map.imageId = await migrateImage(map.imageUrl);
+          delete map.imageUrl;
+        }
+      }
+    }
+
+    return newState;
+  };
+
+  // 核心：打包导出为 ZIP (.mind)
+  const exportArchive = async (isSaveAs: boolean) => {
+    const zip = new JSZip();
+    const cleanState = { ...state };
+    zip.file("data.json", JSON.stringify(cleanState, null, 2));
+    
+    const imageIds = await getAllImageIdsFromDB();
+    const imgFolder = zip.folder("images");
+    if (imgFolder) {
+      for (const id of imageIds) {
+        const blob = await loadImageFromDB(id);
+        if (blob) {
+          imgFolder.file(id, blob);
+        }
+      }
+    }
+
+    const content = await zip.generateAsync({ type: "blob" });
+    const fileName = state.lastFileName ? state.lastFileName.replace(/\.json$/, '.mind') : `mystery-${new Date().toISOString().slice(0,10)}.mind`;
+
+    if ('showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileName,
+          types: [{
+            description: 'MysteryMind Bundle',
+            accept: { 'application/zip': ['.mind'] },
+          }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        setFileHandle(handle);
+        setState(prev => ({ ...prev, lastFileName: handle.name }));
+        setShowExportModal(false);
+        setStatusMessage("档案打包成功");
+      } catch (err) {
+        if (err.name !== 'AbortError') throw err;
+      }
+    } else {
+      const url = URL.createObjectURL(content);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
+      setShowExportModal(false);
+      setStatusMessage("档案已下载 (.mind)");
+    }
+  };
+
+  // 核心：智能导入 (支持 .mind 或 .json)
+  const handleImportFile = async (file: File) => {
+    const isZip = file.name.endsWith('.mind') || file.type === 'application/zip';
+    const isJson = file.name.endsWith('.json') || file.type === 'application/json';
+
+    try {
+      let parsedData: any;
+
+      if (isZip) {
+        const zip = await JSZip.loadAsync(file);
+        const dataFile = zip.file("data.json");
+        if (!dataFile) throw new Error("无效的存档文件：缺少 data.json");
+
+        const jsonData = await dataFile.async("string");
+        parsedData = JSON.parse(jsonData);
+
+        const imgFolder = zip.folder("images");
+        if (imgFolder) {
+          const promises: Promise<void>[] = [];
+          imgFolder.forEach((relativePath, fileObj) => {
+            const id = relativePath;
+            promises.push(fileObj.async("blob").then(blob => saveImageToDB(id, blob)));
+          });
+          await Promise.all(promises);
+        }
+      } else if (isJson) {
+        const text = await file.text();
+        parsedData = JSON.parse(text);
+        setStatusMessage("检测到旧版 JSON，正在进行格式升级...");
+      } else {
+        throw new Error("不支持的文件类型");
+      }
+
+      // 执行迁移逻辑
+      const migratedState = await migrateLegacyData(parsedData);
+      
+      setFileHandle(null);
+      setState({ ...migratedState, lastFileName: file.name.replace(/\.json$/, '.mind') });
+      await refreshBlobUrls(migratedState);
+      
+      setStatusMessage(isJson ? "旧版档案已成功迁移至新系统" : "档案加载成功");
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("导入失败：文件损坏或格式不正确");
+    }
+  };
+
+  const handleOpenFile = async () => {
+    if ('showOpenFilePicker' in window && window.isSecureContext && !isIframe) {
+      try {
+        const [handle] = await (window as any).showOpenFilePicker({
+          types: [{
+            description: 'MysteryMind Archive',
+            accept: { 'application/zip': ['.mind'], 'application/json': ['.json'] },
+          }],
+        });
+        const file = await handle.getFile();
+        await handleImportFile(file);
+        setFileHandle(handle);
+      } catch (err) {
+        if (err.name !== 'AbortError') setErrorMessage("无法打开文件");
+      }
+    } else {
+      fileImportRef.current?.click();
+    }
+  };
+
+  // 其余 Handle 逻辑保持不变...
   const handleAddLocation = (loc: Location) => setState(p => ({ ...p, locations: [...p.locations, loc] }));
   const handleUpdateLocation = (loc: Location) => setState(p => ({ ...p, locations: p.locations.map(l => l.id === loc.id ? loc : l) }));
   const handleDeleteLocation = (id: string) => setState(p => ({ 
     ...p, 
     locations: p.locations.filter(l => l.id !== id),
-    alibis: p.alibis.map(a => a.locationId === id ? { ...a, locationId: undefined } : a)
+    alibis: p.alibis.map(a => a.locationId === id ? { ...a, locationId: undefined } : a),
+    clues: p.clues.map(c => c.locationId === id ? { ...c, locationId: undefined, locationItemId: undefined } : c)
   }));
 
   const handleAddAlibi = (alibi: Alibi) => {
@@ -207,7 +462,7 @@ const App: React.FC = () => {
     setStatusMessage("场景及关联数据已删除");
   };
 
-  const handleSaveClue = (clue: Clue) => {
+  const handleSaveClue = async (clue: Clue) => {
     setState(prev => {
       const exists = prev.clues.find(c => c.id === clue.id);
       if (exists) { return { ...prev, clues: prev.clues.map(c => c.id === clue.id ? clue : c) }; }
@@ -230,112 +485,6 @@ const App: React.FC = () => {
     }));
     setClueToDeleteId(null);
     setStatusMessage("证物已销毁");
-  };
-
-  const triggerLegacyDownload = (filename: string) => {
-    try {
-      const dataStr = JSON.stringify(state, null, 2);
-      const blob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-      setShowExportModal(false);
-      setStatusMessage("档案已成功下载 (兼容模式)");
-    } catch (e) {
-      setErrorMessage("浏览器下载组件异常");
-    }
-  };
-
-  const handleSaveAs = async () => {
-    const fallbackName = state.lastFileName || `mystery-mind-${new Date().toISOString().slice(0,10)}.json`;
-    try {
-      if ('showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: fallbackName,
-          types: [{
-            description: 'MysteryMind Archive',
-            accept: { 'application/json': ['.json'] },
-          }],
-        });
-        const writable = await handle.createWritable();
-        const dataStr = JSON.stringify(state, null, 2);
-        await writable.write(dataStr);
-        await writable.close();
-        setFileHandle(handle);
-        setState(prev => ({ ...prev, lastFileName: handle.name }));
-        setShowExportModal(false);
-        setStatusMessage("文件已关联并保存成功");
-      } else { triggerLegacyDownload(fallbackName); }
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
-      triggerLegacyDownload(fallbackName);
-    }
-  };
-
-  const handleOverwrite = async () => {
-    const fallbackName = state.lastFileName || 'mystery_archive.json';
-    if (!fileHandle || isIframe) { await handleSaveAs(); return; }
-    try {
-      const options = { mode: 'readwrite' };
-      const permission = await fileHandle.queryPermission(options);
-      if (permission !== 'granted') {
-        const request = await fileHandle.requestPermission(options);
-        if (request !== 'granted') { triggerLegacyDownload(fallbackName); return; }
-      }
-      const writable = await fileHandle.createWritable();
-      const dataStr = JSON.stringify(state, null, 2);
-      await writable.write(dataStr);
-      await writable.close();
-      setShowExportModal(false);
-      setStatusMessage("静默覆盖保存成功");
-    } catch (err: any) { await handleSaveAs(); }
-  };
-
-  const handleOpenFile = async () => {
-    try {
-      if ('showOpenFilePicker' in window && window.isSecureContext && !isIframe) {
-        const [handle] = await (window as any).showOpenFilePicker({
-          types: [{
-            description: 'MysteryMind Archive',
-            accept: { 'application/json': ['.json'] },
-          }],
-          multiple: false
-        });
-        const file = await handle.getFile();
-        const content = await file.text();
-        const parsed = JSON.parse(content);
-        setFileHandle(handle);
-        setState({ ...INITIAL_STATE, ...parsed, lastFileName: handle.name });
-        setStatusMessage(`已建立文件关联: ${handle.name}`);
-      } else { fileImportRef.current?.click(); }
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
-      fileImportRef.current?.click();
-    }
-  };
-
-  const handleExportData = () => { setShowExportModal(true); };
-
-  const handleImportLegacy = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const fileName = file.name;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const parsed = JSON.parse(ev.target?.result as string);
-        setFileHandle(null); 
-        setState({ ...INITIAL_STATE, ...parsed, lastFileName: fileName });
-        setStatusMessage(`导入成功`);
-      } catch (err) { setErrorMessage("导入失败"); }
-    };
-    reader.readAsText(file);
-    e.target.value = '';
   };
 
   const handleAddRelationship = (source: string, target: string, relation: string) => {
@@ -399,14 +548,15 @@ const App: React.FC = () => {
               <div className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${fileHandle ? 'bg-green-900/20 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
                  {fileHandle ? <Link2 size={12}/> : <Link2Off size={12}/>} {fileHandle ? '已关联本地文件' : isIframe ? '沙盒环境受限' : '未关联文件'}
               </div>
-              <input type="file" ref={fileImportRef} onChange={handleImportLegacy} accept=".json" className="hidden" />
-              <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打开</span></button>
-              <button onClick={handleExportData} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><Save size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">保存</span></button>
+              <input type="file" ref={fileImportRef} onChange={(e) => e.target.files?.[0] && handleImportFile(e.target.files[0])} accept=".mind,.json" className="hidden" />
+              <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">导入存档</span></button>
+              <button onClick={() => setShowExportModal(true)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><Save size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打包导出</span></button>
             </div>
           </div>
         </div>
       </header>
 
+      {/* 侧边栏与主区域内容保持不变... */}
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg">
@@ -423,21 +573,51 @@ const App: React.FC = () => {
             
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
               {sidebarTab === 'characters' ? (
-                state.characters.map(char => (
-                  <div key={char.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)} className={`flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-slate-400 transition-colors group cursor-grab active:cursor-grabbing ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 border-blue-500/30' : ''}`}>
-                    <div className="flex items-center gap-3 truncate flex-1"><GripVertical size={14} className="text-slate-500 shrink-0" /><div className="flex flex-col truncate min-w-0"><span className="text-sm font-bold text-blue-300 truncate">{char.name}</span>{(char.note || char.raw_info) && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{char.note || char.raw_info}</span>}</div></div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingCharacter(char); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14}/></button><button onClick={(e) => { e.stopPropagation(); setCharacterToDelete(char); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14}/></button></div>
-                  </div>
-                ))
+                state.characters.map(char => {
+                  const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
+                  return (
+                    <div key={char.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)} className={`flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-slate-400 transition-colors group cursor-grab active:cursor-grabbing ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 border-blue-500/30' : ''}`}>
+                      <div className="flex items-center gap-3 truncate flex-1">
+                        <GripVertical size={14} className="text-slate-500 shrink-0" />
+                        {portraitUrl ? (
+                          <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-600 bg-slate-900 shrink-0">
+                            <img src={portraitUrl} alt={char.name} className="w-full h-full object-cover" />
+                          </div>
+                        ) : (
+                          <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border border-slate-600">
+                            <User size={14} />
+                          </div>
+                        )}
+                        <div className="flex flex-col truncate min-w-0">
+                          <span className="text-sm font-bold text-blue-300 truncate">{char.name}</span>
+                          {(char.note || char.raw_info) && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{char.note || char.raw_info}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingCharacter(char); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14}/></button><button onClick={(e) => { e.stopPropagation(); setCharacterToDelete(char); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14}/></button></div>
+                    </div>
+                  );
+                })
               ) : (
                 <div className="space-y-2">
                   <button onClick={() => { setEditingClue(null); setIsClueModalOpen(true); }} className="w-full py-2 border-2 border-dashed border-slate-700 rounded-lg text-slate-500 hover:text-amber-400 hover:border-amber-500/50 hover:bg-amber-500/5 transition-all text-xs font-bold flex items-center justify-center gap-2 mb-2"><Plus size={14} /> 新增证物</button>
-                  {state.clues.map(clue => (
-                    <div key={clue.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-clue-id", clue.id)} className="flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-amber-500/50 transition-colors group cursor-grab active:cursor-grabbing">
-                      <div className="flex items-center gap-3 truncate flex-1"><Package size={14} className="text-amber-500 shrink-0" /><div className="flex flex-col truncate min-w-0"><span className="text-sm font-bold text-amber-200 truncate">{clue.name}</span>{clue.description && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{clue.description}</span>}</div></div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14} /></button><button onClick={(e) => { e.stopPropagation(); setClueToDeleteId(clue.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14} /></button></div>
+                  {state.clues.map(clue => {
+                    const thumbUrl = clue.imageId ? blobUrls[clue.imageId] : null;
+                    return (
+                      <div key={clue.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-clue-id", clue.id)} className="flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-amber-500/50 transition-colors group cursor-grab active:cursor-grabbing">
+                        <div className="flex items-center gap-3 truncate flex-1">
+                          {thumbUrl ? (
+                            <div className="w-8 h-8 rounded border border-slate-600 overflow-hidden shrink-0">
+                              <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
+                            </div>
+                          ) : (
+                            <Package size={14} className="text-amber-500 shrink-0" />
+                          )}
+                          <div className="flex flex-col truncate min-w-0"><span className="text-sm font-bold text-amber-200 truncate">{clue.name}</span>{clue.description && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{clue.description}</span>}</div>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14} /></button><button onClick={(e) => { e.stopPropagation(); setClueToDeleteId(clue.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14} /></button></div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -466,24 +646,115 @@ const App: React.FC = () => {
                     <button onClick={() => setEvidenceSubTab('alibis')} className={`text-sm font-bold flex items-center gap-2 px-4 py-2 rounded-t-lg transition-colors ${evidenceSubTab === 'alibis' ? 'bg-slate-800 text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}><ShieldCheck size={14} /> 不在场证明</button>
                     <button onClick={() => setEvidenceSubTab('locations')} className={`text-sm font-bold flex items-center gap-2 px-4 py-2 rounded-t-lg transition-colors ${evidenceSubTab === 'locations' ? 'bg-slate-800 text-emerald-400' : 'text-slate-500 hover:text-slate-300'}`}><MapPin size={14} /> 地点索引</button>
                 </div>
-                {evidenceSubTab === 'clues' && <EvidenceBoard clues={state.clues} onOpenModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onUpdateStatus={(id, s) => setState(p => ({ ...p, clues: p.clues.map(c => c.id === id ? { ...c, status: s } : c) }))} onDeleteClue={setClueToDeleteId} />}
+                {evidenceSubTab === 'clues' && <EvidenceBoard clues={state.clues} locations={state.locations} blobUrls={blobUrls} onOpenModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onUpdateStatus={(id, s) => setState(p => ({ ...p, clues: p.clues.map(c => c.id === id ? { ...c, status: s } : c) }))} onDeleteClue={setClueToDeleteId} />}
                 {evidenceSubTab === 'alibis' && <AlibiMatrix alibis={state.alibis} characters={state.characters} timePoints={state.timePoints} locations={state.locations} onAddAlibi={handleAddAlibi} onUpdateAlibi={handleUpdateAlibi} onDeleteAlibi={handleDeleteAlibi} />}
-                {evidenceSubTab === 'locations' && <LocationList locations={state.locations} maps={state.maps} spaces={state.spaces} onAddLocation={handleAddLocation} onUpdateLocation={handleUpdateLocation} onDeleteLocation={handleDeleteLocation} />}
+                {evidenceSubTab === 'locations' && <LocationList locations={state.locations} maps={state.maps} spaces={state.spaces} clues={state.clues} blobUrls={blobUrls} onAddLocation={handleAddLocation} onUpdateLocation={handleUpdateLocation} onDeleteLocation={handleDeleteLocation} onImageSave={handleEntityImageSave} />}
               </div>
             )}
             {activeTab === 'map' && (
-              /* Fix: Use unique names for handler parameters and the setState 'prev' parameter to avoid shadowing and fix line 475 error */
-              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} />
+              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />
             )}
           </div>
         </div>
       </main>
 
-      <ClueModal isOpen={isClueModalOpen} editingClue={editingClue} onClose={() => { setIsClueModalOpen(false); setEditingClue(null); }} onSave={handleSaveClue} />
-      {clueToDeleteId && <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"><div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-w-sm p-6 text-center"><div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div><h3 className="text-xl font-bold text-white mb-2">确认销毁证物?</h3><p className="text-slate-400 text-sm mb-6">证物记录将被物理删除。</p><div className="flex gap-3"><button onClick={() => setClueToDeleteId(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button><button onClick={() => handleDeleteClue(clueToDeleteId)} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold shadow-lg">确认销毁</button></div></div></div>}
-      {showExportModal && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300"><div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-lg overflow-hidden animate-in zoom-in-95 duration-200"><div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center"><h3 className="text-xl font-bold text-white flex items-center gap-3"><Save className="text-blue-400" size={24} />导出/保存档案</h3><button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white"><X size={24} /></button></div><div className="p-8 space-y-6"><div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><button onClick={handleOverwrite} className="flex flex-col items-center gap-4 p-6 bg-slate-900/50 border border-slate-700 rounded-2xl hover:border-blue-500 hover:bg-slate-700/50 transition-all group text-center"><div className="p-4 bg-blue-900/30 rounded-full text-blue-400 group-hover:scale-110 transition-transform"><RefreshCw size={32} /></div><div className="space-y-1"><span className="block font-bold text-white">直接覆盖保存</span></div></button><button onClick={handleSaveAs} className="flex flex-col items-center gap-4 p-6 bg-slate-900/50 border border-slate-700 rounded-2xl hover:border-green-500 hover:bg-slate-700/50 transition-all group text-center"><div className="p-4 bg-green-900/30 rounded-full text-green-400 group-hover:scale-110 transition-transform"><FilePlus size={32} /></div><div className="space-y-1"><span className="block font-bold text-white">另存为新档案</span></div></button></div></div></div></div>}
+      <ClueModal 
+        isOpen={isClueModalOpen} 
+        editingClue={editingClue} 
+        locations={state.locations}
+        blobUrls={blobUrls}
+        onClose={() => { setIsClueModalOpen(false); setEditingClue(null); }} 
+        onSave={handleSaveClue} 
+        onImageSave={handleEntityImageSave}
+      />
+
+      {showExportModal && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
+          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+              <h3 className="text-xl font-bold text-white flex items-center gap-3"><FileArchive className="text-blue-400" size={24} />打包导出</h3>
+              <button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
+            </div>
+            <div className="p-8 space-y-4">
+              <p className="text-sm text-slate-400">我们将所有案情数据和图片文件打包为 <code className="text-blue-400 font-bold">.mind</code> 文件。您可以安全地在其他设备加载此文件。</p>
+              <button onClick={() => exportArchive(false)} className="w-full flex items-center justify-center gap-3 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all font-bold shadow-xl shadow-blue-900/20">
+                <Save size={20} /> 打包导出 .mind
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 其余 Modal 结构保持不变... */}
       {characterToDelete && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"><div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm animate-in zoom-in-95 duration-200 overflow-hidden"><div className="p-6 text-center"><div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div><h3 className="text-xl font-bold text-white mb-2">确认删除角色?</h3><div className="flex gap-3"><button onClick={() => setCharacterToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all">取消</button><button onClick={handleConfirmDeleteCharacter} className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95">确认删除</button></div></div></div></div>}
-      {editingCharacter && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"><div className="bg-slate-800 rounded-xl border border-slate-600 w-full max-w-md shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"><div className="flex justify-between items-center p-4 border-b border-slate-700 bg-slate-900/50"><h3 className="text-lg font-bold text-white flex items-center gap-2"><Users size={18} className="text-blue-400" />编辑人物: {editingCharacter.name}</h3><button onClick={() => setEditingCharacter(null)} className="text-slate-400 hover:text-white"><X size={20}/></button></div><div className="p-6 space-y-4"><div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">姓名</label><input className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" value={editingCharacter.name} onChange={e => setEditingCharacter({...editingCharacter, name: e.target.value})} /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">身份/简称</label><input className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" value={editingCharacter.raw_info || ''} onChange={e => setEditingCharacter({...editingCharacter, raw_info: e.target.value})} /></div><div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">备注笔记</label><textarea className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none" value={editingCharacter.note || ''} onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})} /></div><div className="flex justify-end gap-3 pt-2"><button onClick={() => setEditingCharacter(null)} className="px-4 py-2 text-slate-400 hover:text-white">取消</button><button onClick={() => { setState(p => ({ ...p, characters: p.characters.map(c => c.id === editingCharacter.id ? editingCharacter : c) })); setEditingCharacter(null); }} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-bold transition-all">确认修改</button></div></div></div></div>}
+      
+      {editingCharacter && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-slate-800 rounded-3xl border border-slate-600 w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="flex justify-between items-center p-5 border-b border-slate-700 bg-slate-900/50">
+              <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                <Users size={18} className="text-blue-400" />
+                编辑人物档案
+              </h3>
+              <button onClick={() => setEditingCharacter(null)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-700 rounded-full transition-colors">
+                <X size={20}/>
+              </button>
+            </div>
+            <div className="p-8 space-y-6">
+              <div className="flex flex-col items-center gap-4">
+                <div 
+                  onClick={() => charFileInputRef.current?.click()}
+                  className="w-24 h-24 rounded-full border-2 border-dashed border-slate-600 bg-slate-900/50 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-all overflow-hidden relative group"
+                >
+                  <input type="file" ref={charFileInputRef} className="hidden" accept="image/*" onChange={handleCharImageUpload} />
+                  {isCharImageLoading ? (
+                    <Loader2 className="animate-spin text-blue-500" size={24} />
+                  ) : editingCharacter.imageId ? (
+                    <>
+                      <img src={blobUrls[editingCharacter.imageId]} alt="portrait" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Camera size={20} className="text-white" />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center text-slate-500 group-hover:text-blue-400">
+                      <Camera size={24} />
+                      <span className="text-[10px] mt-1 font-bold">上传照片</span>
+                    </div>
+                  )}
+                </div>
+                <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">点击更新人物头像</span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">姓名</label>
+                  <input className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white outline-none focus:ring-2 focus:ring-blue-500 font-bold" value={editingCharacter.name} onChange={e => setEditingCharacter({...editingCharacter, name: e.target.value})} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">身份标签</label>
+                  <input className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white outline-none focus:ring-2 focus:ring-blue-500" value={editingCharacter.raw_info || ''} onChange={e => setEditingCharacter({...editingCharacter, raw_info: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">人物笔记 / 逻辑推演</label>
+                <textarea className="w-full h-32 bg-slate-900 border border-slate-700 rounded-2xl p-4 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono" value={editingCharacter.note || ''} onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})} />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button onClick={() => setEditingCharacter(null)} className="px-6 py-2.5 text-slate-400 hover:text-white text-sm font-bold transition-colors">取消</button>
+                <button 
+                  onClick={() => { setState(p => ({ ...p, characters: p.characters.map(c => c.id === editingCharacter.id ? editingCharacter : c) })); setEditingCharacter(null); }} 
+                  className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-2.5 rounded-xl font-black text-sm transition-all shadow-xl shadow-blue-900/20 active:scale-95"
+                >
+                  确认存档
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

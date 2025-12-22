@@ -10,15 +10,13 @@ interface Props {
   spaces: Space[]; 
   clues: Clue[];
   alibis: Alibi[]; 
-  
-  // Timeline Props
   timePoints: TimePoint[];
   currentTimeId: string;
   timelineData: Record<string, CharacterPlacement[]>; 
   itemTimelineData: Record<string, ItemPlacement[]>;
   characters: Character[];
+  blobUrls: Record<string, string>; // 新增
 
-  // Actions
   onUpdateMaps: (maps: MapDoc[]) => void;
   onDeleteMap: (id: string) => void;
   onCreateMap: (name: string) => void;
@@ -30,6 +28,7 @@ interface Props {
   onUpdateItemPlacements: (timeId: string, placements: ItemPlacement[]) => void;
   onAddClue: (clue: Clue) => void; 
   onOpenClueModal?: (clue: Clue) => void;
+  onImageSave: (entityId: string, blob: Blob) => Promise<string>; // 新增
 }
 
 const generateId = () => {
@@ -49,53 +48,40 @@ interface ClipboardItem {
 
 const MapCanvas: React.FC<Props> = ({ 
     maps, currentMapId, spaces, clues, alibis,
-    timePoints, currentTimeId, timelineData, itemTimelineData = {}, characters,
+    timePoints, currentTimeId, timelineData, itemTimelineData = {}, characters, blobUrls,
     onUpdateMaps, onDeleteMap, onCreateMap, onSelectMap, onUpdateSpaces,
     onUpdateTimePoints, onSelectTime,
     onUpdatePlacements, onUpdateItemPlacements, onAddClue,
-    onOpenClueModal
+    onOpenClueModal, onImageSave
 }) => {
   const [isDrawing, setIsDrawing] = useState(false);
   const [isCompressing, setIsCompressing] = useState(false);
   const [currentPoints, setCurrentPoints] = useState<Point[]>([]);
-  
-  // Multi-selection state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectionBox, setSelectionBox] = useState<{ x1: number, y1: number, x2: number, y2: number } | null>(null);
-  
-  // Clipboard state
   const [clipboard, setClipboard] = useState<ClipboardItem[]>([]);
   const [isCutMode, setIsCutMode] = useState(false);
-
-  // Alibi summary modal
   const [showAlibiSummary, setShowAlibiSummary] = useState<string | null>(null);
-
   const [zoom, setZoom] = useState(100); 
   const [zoomInput, setZoomInput] = useState('100');
   const [canvasHeight, setCanvasHeight] = useState(650);
   const [heightInput, setHeightInput] = useState('650');
-  
   const [editForm, setEditForm] = useState<{ name: string; attributes: string[]; note: string } | null>(null);
   const [customAttrInput, setCustomAttrInput] = useState("");
   const [dragOverMap, setDragOverMap] = useState(false);
-  
   const [isTimeModalOpen, setIsTimeModalOpen] = useState(false);
   const [newTimeName, setNewTimeName] = useState("");
   const [timeToDelete, setTimeToDelete] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
-
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [newMapName, setNewMapName] = useState("");
   const [mapToDelete, setMapToDelete] = useState<MapDoc | null>(null);
   const mapInputRef = useRef<HTMLInputElement>(null);
-  
   const [editingMapId, setEditingMapId] = useState<string | null>(null);
   const [tempMapName, setTempMapName] = useState("");
-  
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
   const [naturalSize, setNaturalSize] = useState<{w: number, h: number} | null>(null);
   const [displaySize, setDisplaySize] = useState<{w: number | string, h: number | string}>({ w: '100%', h: '100%' });
 
@@ -103,6 +89,8 @@ const MapCanvas: React.FC<Props> = ({
   const currentSpaces = spaces.filter(s => s.mapId === currentMap.id);
   const currentPlacements = timelineData[currentTimeId] || [];
   const currentItemPlacements = itemTimelineData[currentTimeId] || [];
+
+  const currentMapUrl = currentMap.imageId ? blobUrls[currentMap.imageId] : null;
 
   useEffect(() => {
     setSelectedIds(new Set());
@@ -117,10 +105,10 @@ const MapCanvas: React.FC<Props> = ({
     if (isMapModalOpen && mapInputRef.current) setTimeout(() => mapInputRef.current?.focus(), 100);
   }, [isMapModalOpen]);
 
-  useEffect(() => setNaturalSize(null), [currentMapId, currentMap.imageUrl]);
+  useEffect(() => setNaturalSize(null), [currentMapId, currentMapUrl]);
 
   useLayoutEffect(() => {
-      if (!currentMap.imageUrl || !naturalSize) {
+      if (!currentMapUrl || !naturalSize) {
           setDisplaySize({ w: '100%', h: '100%' });
           return;
       }
@@ -138,7 +126,7 @@ const MapCanvas: React.FC<Props> = ({
       const ro = new ResizeObserver(updateSize);
       if (wrapperRef.current) ro.observe(wrapperRef.current);
       return () => ro.disconnect();
-  }, [naturalSize, currentMap.imageUrl, zoom, canvasHeight]);
+  }, [naturalSize, currentMapUrl, zoom, canvasHeight]);
 
   const handleZoomBlur = () => {
     let num = parseInt(zoomInput);
@@ -179,8 +167,9 @@ const MapCanvas: React.FC<Props> = ({
     if (file) {
       setIsCompressing(true);
       try {
-        const compressedBase64 = await compressImage(file, 1024, 0.8);
-        onUpdateMaps(maps.map(m => m.id === currentMapId ? { ...m, imageUrl: compressedBase64 } : m));
+        const blob = await compressImage(file, 1024, 0.8);
+        const imageId = await onImageSave(currentMapId, blob);
+        onUpdateMaps(maps.map(m => m.id === currentMapId ? { ...m, imageId } : m));
       } catch (err) { console.error(err); } finally { setIsCompressing(false); }
     }
   };
@@ -481,7 +470,6 @@ const MapCanvas: React.FC<Props> = ({
 
   return (
     <div style={{ height: `${canvasHeight}px` }} className="flex flex-col gap-2 relative transition-all duration-300 select-none">
-      {/* Header Controls */}
       <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 shrink-0">
         <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[40%]">
             {maps.map(m => (
@@ -518,8 +506,8 @@ const MapCanvas: React.FC<Props> = ({
         <div className="flex items-center gap-3">
             {selectedIds.size > 0 && (
               <div className="flex items-center gap-1 bg-slate-900/80 backdrop-blur border border-blue-500/40 p-1 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-2">
-                <button onClick={() => handleBulkCopy(false)} title="复制当前可见项" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Copy size={14}/></button>
-                <button onClick={() => handleBulkCopy(true)} title="剪切当前可见项" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Scissors size={14}/></button>
+                <button onClick={() => handleBulkCopy(false)} title="复制" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Copy size={14}/></button>
+                <button onClick={() => handleBulkCopy(true)} title="剪切" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Scissors size={14}/></button>
                 <button onClick={handleBulkDelete} title="批量删除" className="p-1.5 hover:bg-red-900/20 rounded-lg text-red-400 transition-colors"><Trash2 size={14}/></button>
                 <div className="w-[1px] h-4 bg-slate-700 mx-1"></div>
                 <div className="px-2 text-[10px] font-bold text-slate-400">已选 {selectedIds.size}</div>
@@ -558,7 +546,6 @@ const MapCanvas: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Main Canvas Body with Sidebar */}
       <div className="flex-1 flex gap-4 min-h-0">
           <div className="flex-1 relative bg-slate-900 border border-slate-700 rounded-lg overflow-hidden flex flex-col">
             <div 
@@ -577,13 +564,13 @@ const MapCanvas: React.FC<Props> = ({
                     style={{ width: displaySize.w, height: displaySize.h }}
                     className={`relative shadow-2xl transition-all duration-75 mx-auto ${isDrawing ? 'cursor-crosshair' : 'cursor-default'} ${dragOverMap ? 'ring-2 ring-blue-500 ring-inset' : ''}`}
                 >
-                    {!currentMap.imageUrl ? (
+                    {!currentMapUrl ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 pointer-events-none select-none border border-slate-700/30">
                             <MapPin size={48} className="mb-2 opacity-50" />
                             <p className="text-sm font-medium">请上传背景图</p>
                         </div>
                     ) : (
-                        <img src={currentMap.imageUrl} className="w-full h-full pointer-events-none select-none" alt="map" onLoad={(e) => setNaturalSize({w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight})} />
+                        <img src={currentMapUrl} className="w-full h-full pointer-events-none select-none" alt="map" onLoad={(e) => setNaturalSize({w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight})} />
                     )}
 
                     <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
@@ -601,6 +588,7 @@ const MapCanvas: React.FC<Props> = ({
                     {currentPlacements.filter(p => p.mapId === currentMapId).map(p => {
                         const char = characters.find(c => c.id === p.characterId);
                         if (!char) return null;
+                        const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
                         const isSelected = selectedIds.has(p.characterId);
                         return (
                             <div 
@@ -612,8 +600,8 @@ const MapCanvas: React.FC<Props> = ({
                               className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-10 transition-all ${isSelected ? 'scale-110' : ''}`} 
                               style={{ left: `${p.x}%`, top: `${p.y}%` }}
                             >
-                                <div className={`w-8 h-8 rounded-full bg-slate-800 border-2 shadow-lg flex items-center justify-center text-xs font-bold text-white relative transition-all ${isSelected ? 'border-blue-400 ring-4 ring-blue-400/20' : 'border-white'}`}>
-                                    {char.name.charAt(0)}
+                                <div className={`w-8 h-8 rounded-full bg-slate-800 border-2 shadow-lg flex items-center justify-center text-xs font-bold text-white relative transition-all overflow-hidden ${isSelected ? 'border-blue-400 ring-4 ring-blue-400/20' : 'border-white'}`}>
+                                    {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover" /> : char.name.charAt(0)}
                                     <div className={`absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/75 text-[10px] px-1 rounded transition-opacity shadow-black/50 shadow-md ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>{char.name}</div>
                                 </div>
                             </div>
@@ -646,7 +634,6 @@ const MapCanvas: React.FC<Props> = ({
              </div>
           </div>
 
-          {/* New Sidebar Location for Properties */}
           {selectedIds.size > 0 && editForm && (
               <div className="w-80 bg-slate-800 border border-slate-700 rounded-lg shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
                   <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
@@ -696,7 +683,6 @@ const MapCanvas: React.FC<Props> = ({
           )}
       </div>
 
-      {/* Timeline Controls */}
       <div className="shrink-0 h-28 bg-slate-800 rounded-lg border border-slate-700 flex flex-col shadow-inner">
         <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
             <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线点 (Timeline)</h3>
@@ -714,16 +700,16 @@ const MapCanvas: React.FC<Props> = ({
                             <span className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>{tp.label}</span>
                             <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                {linkedAlibis.length > 0 && (
-                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} className="text-purple-400 hover:scale-110" title="查看证明">
+                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} className="text-purple-400 hover:scale-110">
                                    <ShieldCheck size={12}/>
                                  </button>
                                )}
-                               {clipboard.length > 0 && <button onClick={(e) => { e.stopPropagation(); onSelectTime(tp.id); handlePaste(); }} className="text-green-400 hover:scale-110" title="粘贴在此点"><Clipboard size={12}/></button>}
+                               {clipboard.length > 0 && <button onClick={(e) => { e.stopPropagation(); onSelectTime(tp.id); handlePaste(); }} className="text-green-400 hover:scale-110"><Clipboard size={12}/></button>}
                                {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} className="text-slate-600 hover:text-red-400"><X size={12} /></button>}
                             </div>
                         </div>
                         <div className="flex items-end justify-between mt-1">
-                             <div className="text-[10px] text-slate-500 tracking-tighter uppercase font-mono">{timelineData[tp.id]?.length || 0}👤 | {itemTimelineData[tp.id]?.length || 0}📦 | {linkedAlibis.length}🛡️</div>
+                             <div className="text-[10px] text-slate-500 tracking-tighter uppercase font-mono">{timelineData[tp.id]?.length || 0}👤 | {itemTimelineData[tp.id]?.length || 0}📦</div>
                              {currentTimeId === tp.id && <div className="w-full h-0.5 bg-orange-500 absolute bottom-0 left-0 right-0 rounded-b"></div>}
                         </div>
                     </div>
@@ -759,15 +745,11 @@ const MapCanvas: React.FC<Props> = ({
                             {alibi.details && <p className="text-xs text-slate-500 italic border-l-2 border-slate-700 pl-3 py-1 font-mono">{alibi.details}</p>}
                         </div>
                     ))}
-                    {alibis.filter(a => a.timePointId === showAlibiSummary).length === 0 && (
-                        <div className="text-center py-12 text-slate-600 italic">此点未绑定证明</div>
-                    )}
                 </div>
             </div>
         </div>
       )}
 
-      {/* Confirmation Modals (Portals or Global Overlay) */}
       {mapToDelete && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm overflow-hidden p-6 text-center">
