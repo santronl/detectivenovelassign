@@ -79,7 +79,15 @@ export interface CharacterPlacement {
   y: number; // percentage
 }
 
+export interface ItemPlacement {
+  clueId: string;
+  mapId: string;
+  x: number;
+  y: number;
+}
+
 export type TimelineData = Record<string, CharacterPlacement[]>;
+export type ItemTimelineData = Record<string, ItemPlacement[]>;
 
 export interface AppState {
   characters: Character[];
@@ -93,6 +101,7 @@ export interface AppState {
   spaces: Space[];
   timePoints: TimePoint[];
   timelineData: TimelineData;
+  itemTimelineData: ItemTimelineData; // Added: Track clues on map
   
   currentMapId: string;
   currentTimeId: string;
@@ -121,6 +130,7 @@ export const INITIAL_STATE: AppState = {
   spaces: [],
   timePoints: [{ id: 't1', label: '初始时刻', order: 0 }],
   timelineData: {},
+  itemTimelineData: {}, // Added
   
   currentMapId: 'default',
   currentTimeId: 't1',

@@ -1,11 +1,12 @@
 
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { parseCharacterList } from './utils/parser';
-import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, Clue, CharacterGroup, Alibi } from './types';
+import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Clue, CharacterGroup, Alibi } from './types';
 import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
 import AlibiMatrix from './components/AlibiMatrix';
 import MapCanvas from './components/MapCanvas';
+import ClueModal from './components/ClueModal';
 import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle } from './services/storage';
 import { 
   Users, 
@@ -28,7 +29,9 @@ import {
   Link2,
   Link2Off,
   AlertCircle,
-  Info
+  Package,
+  Info,
+  Plus
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -37,8 +40,15 @@ const App: React.FC = () => {
   const [inputText, setInputText] = useState('');
   const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
   const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis'>('clues');
+  const [sidebarTab, setSidebarTab] = useState<'characters' | 'clues'>('characters');
+  
+  // Modals State
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
   const [characterToDelete, setCharacterToDelete] = useState<Character | null>(null);
+  const [editingClue, setEditingClue] = useState<Clue | null>(null);
+  const [isClueModalOpen, setIsClueModalOpen] = useState(false);
+  const [clueToDeleteId, setClueToDeleteId] = useState<string | null>(null);
+  
   const [showExportModal, setShowExportModal] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -75,6 +85,7 @@ const App: React.FC = () => {
             relationships: saved.relationships || [],
             clues: saved.clues || [],
             alibis: saved.alibis || [],
+            itemTimelineData: saved.itemTimelineData || {},
             lastFileName: saved.lastFileName || null
           });
         }
@@ -91,7 +102,6 @@ const App: React.FC = () => {
     initStorage();
   }, [isIframe]);
 
-  // 使用防抖机制保存状态，防止图像 Base64 数据过多导致序列化阻塞 UI
   useEffect(() => {
     if (!isInitialized) return;
     
@@ -101,23 +111,10 @@ const App: React.FC = () => {
       } catch (e) {
         console.error("Failed to save state to IndexedDB:", e);
       }
-    }, 2000); // 2秒防抖
+    }, 2000); 
 
     return () => clearTimeout(timeoutId);
   }, [state, isInitialized]);
-
-  useEffect(() => {
-    if (!isInitialized || isIframe) return;
-    
-    const save = async () => {
-      try {
-        await saveFileHandle(fileHandle);
-      } catch (e) {
-        console.error("Failed to save file handle to IndexedDB:", e);
-      }
-    };
-    save();
-  }, [fileHandle, isInitialized, isIframe]);
 
   const handleAddAlibi = (alibi: Alibi) => {
     setState(prev => ({ ...prev, alibis: [...prev.alibis, alibi] }));
@@ -154,7 +151,8 @@ const App: React.FC = () => {
     setState(prev => {
       const updatedTimelineData = { ...prev.timelineData };
       Object.keys(updatedTimelineData).forEach(timeId => {
-        updatedTimelineData[timeId] = updatedTimelineData[timeId].filter(p => p.characterId !== charId);
+        const currentPlacements = updatedTimelineData[timeId] as CharacterPlacement[];
+        updatedTimelineData[timeId] = currentPlacements.filter(p => p.characterId !== charId);
       });
 
       return {
@@ -183,9 +181,17 @@ const App: React.FC = () => {
       const newMaps = prev.maps.filter(m => m.id !== mapId);
       const newCurrentMapId = prev.currentMapId === mapId ? newMaps[0].id : prev.currentMapId;
       const newSpaces = prev.spaces.filter(s => s.mapId !== mapId);
+      
       const newTimelineData = { ...prev.timelineData };
       Object.keys(newTimelineData).forEach(timeId => {
-        newTimelineData[timeId] = newTimelineData[timeId].filter(p => p.mapId !== mapId);
+        const currentPlacements = newTimelineData[timeId] as CharacterPlacement[];
+        newTimelineData[timeId] = currentPlacements.filter(p => p.mapId !== mapId);
+      });
+
+      const newItemTimelineData = { ...prev.itemTimelineData };
+      Object.keys(newItemTimelineData).forEach(timeId => {
+        const currentItemPlacements = newItemTimelineData[timeId] as ItemPlacement[];
+        newItemTimelineData[timeId] = currentItemPlacements.filter(p => p.mapId !== mapId);
       });
 
       return {
@@ -193,10 +199,39 @@ const App: React.FC = () => {
         maps: newMaps,
         currentMapId: newCurrentMapId,
         spaces: newSpaces,
-        timelineData: newTimelineData
+        timelineData: newTimelineData,
+        itemTimelineData: newItemTimelineData
       };
     });
     setStatusMessage("场景及关联数据已删除");
+  };
+
+  const handleSaveClue = (clue: Clue) => {
+    setState(prev => {
+      const exists = prev.clues.find(c => c.id === clue.id);
+      if (exists) {
+        return { ...prev, clues: prev.clues.map(c => c.id === clue.id ? clue : c) };
+      } else {
+        return { ...prev, clues: [...prev.clues, clue] };
+      }
+    });
+    setIsClueModalOpen(false);
+    setEditingClue(null);
+  };
+
+  const handleDeleteClue = (id: string) => {
+    setState(prev => ({
+      ...prev,
+      clues: prev.clues.filter(c => c.id !== id),
+      itemTimelineData: Object.fromEntries(
+        Object.entries(prev.itemTimelineData).map(([timeId, placements]) => [
+          timeId,
+          (placements as ItemPlacement[]).filter(p => p.clueId !== id)
+        ])
+      )
+    }));
+    setClueToDeleteId(null);
+    setStatusMessage("证物已销毁");
   };
 
   const triggerLegacyDownload = (filename: string) => {
@@ -410,7 +445,7 @@ const App: React.FC = () => {
             </h2>
             <textarea
               className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 focus:ring-2 focus:ring-blue-500/50 resize-none outline-none font-mono"
-              placeholder="请逐行输入人物信息...&#10;例如: 01. 赫尔克里·波洛 侦探"
+              placeholder="请逐行输入人物信息...&#10;例如: 01. 赫尔克里·波洛 (文字备注)"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
             />
@@ -425,43 +460,101 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col max-h-[500px]">
-            <div className="p-4 bg-slate-900/50 border-b border-slate-700">
-              <h2 className="font-bold text-white flex items-center gap-2">
-                <Users size={18} className="text-purple-400" />
-                登场人物清单 ({state.characters.length})
-              </h2>
+          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col h-[500px]">
+            <div className="bg-slate-900/50 border-b border-slate-700 flex">
+              <button 
+                onClick={() => setSidebarTab('characters')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'characters' ? 'text-purple-400 bg-slate-800 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                <Users size={14} /> 登场人物 ({state.characters.length})
+              </button>
+              <button 
+                onClick={() => setSidebarTab('clues')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                <Package size={14} /> 证物清单 ({state.clues.length})
+              </button>
             </div>
+            
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-              {state.characters.length === 0 ? (
-                <div className="text-center py-8 text-slate-600 italic text-sm">暂无人物</div>
-              ) : (
-                state.characters.map(char => (
-                  <div 
-                    key={char.id} 
-                    draggable 
-                    onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)}
-                    className={`flex items-center justify-between p-2 rounded bg-slate-700/50 border border-slate-600/50 hover:border-slate-400 transition-colors group cursor-grab active:cursor-grabbing ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 border-blue-500/30' : ''}`}
-                  >
-                    <div className="flex items-center gap-3 truncate">
-                      <GripVertical size={14} className="text-slate-500 shrink-0" />
-                      <div className="flex flex-col truncate min-w-0">
-                        <span className="text-sm font-medium text-blue-300 truncate cursor-pointer hover:underline" onClick={() => setEditingCharacter(char)}>
-                          {char.name}
-                        </span>
-                        {char.raw_info && (
-                          <span className="text-[10px] text-slate-500 truncate mt-0.5 font-normal">
-                            {char.raw_info}
+              {sidebarTab === 'characters' ? (
+                state.characters.length === 0 ? (
+                  <div className="text-center py-8 text-slate-600 italic text-sm">暂无人物</div>
+                ) : (
+                  state.characters.map(char => (
+                    <div 
+                      key={char.id} 
+                      draggable 
+                      onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)}
+                      className={`flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-slate-400 transition-colors group cursor-grab active:cursor-grabbing ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 border-blue-500/30' : ''}`}
+                    >
+                      <div className="flex items-center gap-3 truncate flex-1">
+                        <GripVertical size={14} className="text-slate-500 shrink-0" />
+                        <div className="flex flex-col truncate min-w-0">
+                          <span className="text-sm font-bold text-blue-300 truncate">
+                            {char.name}
                           </span>
-                        )}
+                          {(char.note || char.raw_info) && (
+                            <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">
+                              {char.note || char.raw_info}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={(e) => { e.stopPropagation(); setEditingCharacter(char); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors" title="查看备注/编辑">
+                          <Info size={14}/>
+                        </button>
+                        <button onClick={(e) => { e.stopPropagation(); setCharacterToDelete(char); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors">
+                          <Trash2 size={14}/>
+                        </button>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={(e) => { e.stopPropagation(); setEditingCharacter(char); }} className="p-1 text-slate-400 hover:text-white"><Edit3 size={14}/></button>
-                      <button onClick={(e) => { e.stopPropagation(); setCharacterToDelete(char); }} className="p-1 text-slate-400 hover:text-red-400"><Trash2 size={14}/></button>
-                    </div>
-                  </div>
-                ))
+                  ))
+                )
+              ) : (
+                <div className="space-y-2">
+                  <button 
+                    onClick={() => { setEditingClue(null); setIsClueModalOpen(true); }}
+                    className="w-full py-2 border-2 border-dashed border-slate-700 rounded-lg text-slate-500 hover:text-amber-400 hover:border-amber-500/50 hover:bg-amber-500/5 transition-all text-xs font-bold flex items-center justify-center gap-2 mb-2"
+                  >
+                    <Plus size={14} /> 新增证物
+                  </button>
+                  {state.clues.length === 0 ? (
+                    <div className="text-center py-8 text-slate-600 italic text-sm">暂无证物</div>
+                  ) : (
+                    state.clues.map(clue => (
+                      <div 
+                        key={clue.id} 
+                        draggable 
+                        onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-clue-id", clue.id)}
+                        className="flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-amber-500/50 transition-colors group cursor-grab active:cursor-grabbing"
+                      >
+                        <div className="flex items-center gap-3 truncate flex-1">
+                          <Package size={14} className="text-amber-500 shrink-0" />
+                          <div className="flex flex-col truncate min-w-0">
+                            <span className="text-sm font-bold text-amber-200 truncate">
+                              {clue.name}
+                            </span>
+                            {clue.description && (
+                              <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">
+                                {clue.description}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-amber-400 hover:bg-slate-600 rounded transition-colors">
+                            <Edit3 size={14} />
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); setClueToDeleteId(clue.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors">
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
               )}
             </div>
           </div>
@@ -522,10 +615,9 @@ const App: React.FC = () => {
                 {evidenceSubTab === 'clues' ? (
                   <EvidenceBoard 
                     clues={state.clues} 
-                    onAddClue={c => setState(prev => ({ ...prev, clues: [...prev.clues, c] }))}
-                    onUpdateClue={c => setState(prev => ({ ...prev, clues: prev.clues.map(i => i.id === c.id ? c : i) }))}
+                    onOpenModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }}
                     onUpdateStatus={(id, s) => setState(prev => ({ ...prev, clues: prev.clues.map(c => c.id === id ? { ...c, status: s } : c) }))}
-                    onDeleteClue={id => setState(prev => ({ ...prev, clues: prev.clues.filter(c => c.id !== id) }))}
+                    onDeleteClue={setClueToDeleteId}
                   />
                 ) : (
                   <AlibiMatrix 
@@ -540,8 +632,9 @@ const App: React.FC = () => {
             )}
             {activeTab === 'map' && (
               <MapCanvas 
-                maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces}
-                timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} characters={state.characters}
+                maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues}
+                timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} 
+                itemTimelineData={state.itemTimelineData} characters={state.characters}
                 onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))}
                 onDeleteMap={handleDeleteMap}
                 onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }}
@@ -550,11 +643,35 @@ const App: React.FC = () => {
                 onUpdateTimePoints={p => setState(prev => ({ ...prev, timePoints: p }))}
                 onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))}
                 onUpdatePlacements={(tid, p) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: p } }))}
+                onUpdateItemPlacements={(tid, p) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: p } }))}
+                onAddClue={handleSaveClue}
               />
             )}
           </div>
         </div>
       </main>
+
+      {/* Global Modals */}
+      <ClueModal 
+        isOpen={isClueModalOpen}
+        editingClue={editingClue}
+        onClose={() => { setIsClueModalOpen(false); setEditingClue(null); }}
+        onSave={handleSaveClue}
+      />
+
+      {clueToDeleteId && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+          <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-w-sm overflow-hidden p-6 text-center">
+              <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div>
+              <h3 className="text-xl font-bold text-white mb-2">确认销毁证物?</h3>
+              <p className="text-slate-400 text-sm mb-6">证物记录将被物理删除，所有地图标注也将失效。</p>
+              <div className="flex gap-3">
+                <button onClick={() => setClueToDeleteId(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button>
+                <button onClick={() => handleDeleteClue(clueToDeleteId)} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold shadow-lg">确认销毁</button>
+              </div>
+          </div>
+        </div>
+      )}
 
       {showExportModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
@@ -564,7 +681,7 @@ const App: React.FC = () => {
               <button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
             </div>
             <div className="p-8 space-y-6">
-              <p className="text-slate-400 text-sm leading-relaxed">系统检测到您当前正基于 <span className="text-blue-300 font-mono italic">"{state.lastFileName || '新建文档'}"</span> 进行编辑。请选择保存方式：</p>
+              <p className="text-slate-400 text-sm leading-relaxed">当前正在编辑 <span className="text-blue-300 font-mono italic">"{state.lastFileName || '新建文档'}"</span>。请选择保存方式：</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <button onClick={handleOverwrite} className="flex flex-col items-center gap-4 p-6 bg-slate-900/50 border border-slate-700 rounded-2xl hover:border-blue-500 hover:bg-slate-700/50 transition-all group text-center">
                   <div className="p-4 bg-blue-900/30 rounded-full text-blue-400 group-hover:scale-110 transition-transform"><RefreshCw size={32} /></div>
@@ -607,8 +724,8 @@ const App: React.FC = () => {
             </div>
             <div className="p-6 space-y-4">
               <div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">姓名</label><input className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" value={editingCharacter.name} onChange={e => setEditingCharacter({...editingCharacter, name: e.target.value})} /></div>
-              <div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">身份</label><input className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" value={editingCharacter.raw_info || ''} onChange={e => setEditingCharacter({...editingCharacter, raw_info: e.target.value})} /></div>
-              <div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">笔记</label><textarea className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none" value={editingCharacter.note || ''} onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})} /></div>
+              <div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">身份/简称</label><input className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" value={editingCharacter.raw_info || ''} onChange={e => setEditingCharacter({...editingCharacter, raw_info: e.target.value})} /></div>
+              <div><label className="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">备注笔记</label><textarea className="w-full h-32 bg-slate-900 border border-slate-700 rounded p-2 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none" value={editingCharacter.note || ''} onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})} /></div>
               <div className="flex justify-end gap-3 pt-2">
                 <button onClick={() => setEditingCharacter(null)} className="px-4 py-2 text-slate-400 hover:text-white">取消</button>
                 <button onClick={() => { setState(p => ({ ...p, characters: p.characters.map(c => c.id === editingCharacter.id ? editingCharacter : c) })); setEditingCharacter(null); }} className="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-bold transition-all">确认修改</button>

@@ -1,3 +1,4 @@
+
 import { Character } from '../types';
 
 /**
@@ -21,23 +22,19 @@ export const parseCharacterList = (text: string): Character[] => {
     // Regex Explanation:
     // ^.*?         -> Ignore leading characters (non-greedy)
     // ([\u4e00-\u9fa5·\.]+) -> Capture Group 1: Chinese characters, middle dots, dots.
-    // (.*)$        -> Capture Group 2: Everything else (raw info)
-    
-    // Note: The rule says "Separation: Identify the boundary between Chinese Characters and Numbers".
-    // The simple regex approach captures the continuous block of Name characters.
-    // Anything following it (spaces, numbers, latin text) is treated as raw info.
+    // (.*)$        -> Capture Group 2: Everything else (now treated as note/remarks)
     
     const match = trimmed.match(/^.*?([\u4e00-\u9fa5·\.]+)(.*)$/);
 
     if (match && match[1]) {
       const name = match[1].trim();
-      const rawInfo = match[2] ? match[2].trim() : '';
+      const remarks = match[2] ? match[2].trim() : '';
       
       if (name.length > 0) {
         characters.push({
           id: crypto.randomUUID(),
           name: name,
-          raw_info: rawInfo
+          note: remarks // Text after name is now remarks/note
         });
       }
     }
