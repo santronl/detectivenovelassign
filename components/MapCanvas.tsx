@@ -9,7 +9,7 @@ interface Props {
   currentMapId: string;
   spaces: Space[]; 
   clues: Clue[];
-  alibis: Alibi[]; // 新增：不在场证明
+  alibis: Alibi[]; 
   
   // Timeline Props
   timePoints: TimePoint[];
@@ -104,7 +104,6 @@ const MapCanvas: React.FC<Props> = ({
   const currentPlacements = timelineData[currentTimeId] || [];
   const currentItemPlacements = itemTimelineData[currentTimeId] || [];
 
-  // Clear selection when map or time changes
   useEffect(() => {
     setSelectedIds(new Set());
     setEditForm(null);
@@ -472,6 +471,9 @@ const MapCanvas: React.FC<Props> = ({
       const space = currentSpaces.find(s => s.id === firstId);
       if (space) {
         setEditForm({ name: space.name, attributes: space.attributes, note: space.note || "" });
+      } else {
+        // If selecting character/clue, we don't show the space edit form by default
+        setEditForm(null);
       }
     } else {
       setEditForm(null);
@@ -480,6 +482,7 @@ const MapCanvas: React.FC<Props> = ({
 
   return (
     <div style={{ height: `${canvasHeight}px` }} className="flex flex-col gap-2 relative transition-all duration-300 select-none">
+      {/* Header Controls */}
       <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 shrink-0">
         <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[40%]">
             {maps.map(m => (
@@ -556,7 +559,8 @@ const MapCanvas: React.FC<Props> = ({
         </div>
       </div>
 
-      <div className="flex-1 flex gap-4 min-h-0 relative">
+      {/* Main Canvas Body with Sidebar */}
+      <div className="flex-1 flex gap-4 min-h-0">
           <div className="flex-1 relative bg-slate-900 border border-slate-700 rounded-lg overflow-hidden flex flex-col">
             <div 
               ref={wrapperRef} 
@@ -623,25 +627,60 @@ const MapCanvas: React.FC<Props> = ({
                         );
                     })}
                 </div>
-
-                {selectedIds.size > 0 && editForm && (
-                    <div className="absolute right-4 top-4 bottom-4 w-80 bg-slate-800/95 backdrop-blur-md border border-slate-600 rounded-2xl shadow-2xl z-30 flex flex-col animate-in slide-in-from-right duration-200 overflow-hidden">
-                        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50"><h3 className="font-bold text-white flex items-center gap-2 text-sm"><Edit3 size={16} className="text-blue-400" />{selectedIds.size > 1 ? `批量属性编辑 (${selectedIds.size})` : '区域档案编辑'}</h3><button onClick={() => { setSelectedIds(new Set()); setEditForm(null); }} className="text-slate-500 hover:text-white transition-colors"><X size={20} /></button></div>
-                        <div className="p-5 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
-                            <div className="space-y-2"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><MapPin size={12} /> 名称</label><input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white outline-none" placeholder={selectedIds.size > 1 ? "统一设置" : "名称"} /></div>
-                            <div className="space-y-3"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><Tag size={12} /> 属性与标签</label>
-                               <div className="flex flex-wrap gap-2">{['密室', '上锁', '危险', '发现点'].map(attr => (<button key={attr} onClick={() => setEditForm({ ...editForm, attributes: editForm.attributes.includes(attr) ? editForm.attributes.filter(a => a !== attr) : [...editForm.attributes, attr] })} className={`text-[10px] px-3 py-1.5 rounded-full border transition-all font-bold ${editForm.attributes.includes(attr) ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'}`}>{attr}</button>))}</div>
-                               <div className="pt-2"><div className="flex gap-2"><div className="relative flex-1"><Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14} /><input value={customAttrInput} onChange={(e) => setCustomAttrInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddCustomAttr()} placeholder="自定义标签..." className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-300 outline-none" /></div><button onClick={handleAddCustomAttr} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"><Plus size={18} /></button></div><div className="flex flex-wrap gap-1.5 mt-3">{editForm.attributes.filter(a => !['密室', '上锁', '危险', '发现点'].includes(a)).map(attr => (<div key={attr} className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700 px-2.5 py-1 rounded-lg text-[10px] text-blue-300">{attr}<button onClick={() => handleRemoveAttr(attr)} className="text-slate-500 hover:text-red-400"><X size={10} /></button></div>))}</div></div>
-                            </div>
-                            <div className="space-y-2"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><AlignLeft size={12} /> 备注</label><textarea value={editForm.note} onChange={e => setEditForm({...editForm, note: e.target.value})} className="w-full h-32 bg-slate-900 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 outline-none resize-none" placeholder="详细记录..." /></div>
-                        </div>
-                        <div className="p-4 border-t border-slate-700 bg-slate-900/50 flex gap-3"><button onClick={handleBulkDelete} className="p-3 text-slate-500 hover:text-red-400 hover:bg-red-900/10 rounded-xl transition-all"><Trash2 size={20} /></button><button onClick={saveEdit} className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-black transition-all shadow-xl shadow-blue-900/20 active:scale-95">保存</button></div>
-                    </div>
-                )}
              </div>
           </div>
+
+          {/* New Sidebar Location for Properties */}
+          {selectedIds.size > 0 && editForm && (
+              <div className="w-80 bg-slate-800 border border-slate-700 rounded-lg shadow-xl flex flex-col overflow-hidden animate-in slide-in-from-right duration-200">
+                  <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+                      <h3 className="font-bold text-white flex items-center gap-2 text-sm">
+                          <Edit3 size={16} className="text-blue-400" />
+                          {selectedIds.size > 1 ? `批量编辑 (${selectedIds.size})` : '区域属性'}
+                      </h3>
+                      <button onClick={() => { setSelectedIds(new Set()); setEditForm(null); }} className="text-slate-500 hover:text-white transition-colors"><X size={20} /></button>
+                  </div>
+                  <div className="p-5 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
+                      <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><MapPin size={12} /> 名称</label>
+                          <input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500" placeholder={selectedIds.size > 1 ? "统一设置" : "名称"} />
+                      </div>
+                      <div className="space-y-3">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><Tag size={12} /> 状态标签</label>
+                          <div className="flex flex-wrap gap-2">
+                              {['密室', '上锁', '危险', '发现点'].map(attr => (
+                                  <button key={attr} onClick={() => setEditForm({ ...editForm, attributes: editForm.attributes.includes(attr) ? editForm.attributes.filter(a => a !== attr) : [...editForm.attributes, attr] })} className={`text-[10px] px-3 py-1.5 rounded-full border transition-all font-bold ${editForm.attributes.includes(attr) ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'}`}>{attr}</button>
+                              ))}
+                          </div>
+                          <div className="pt-2">
+                              <div className="flex gap-2">
+                                  <div className="relative flex-1">
+                                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14} />
+                                      <input value={customAttrInput} onChange={(e) => setCustomAttrInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddCustomAttr()} placeholder="自定义..." className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-300 outline-none" />
+                                  </div>
+                                  <button onClick={handleAddCustomAttr} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"><Plus size={18} /></button>
+                              </div>
+                              <div className="flex flex-wrap gap-1.5 mt-3">
+                                  {editForm.attributes.filter(a => !['密室', '上锁', '危险', '发现点'].includes(a)).map(attr => (
+                                      <div key={attr} className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700 px-2.5 py-1 rounded-lg text-[10px] text-blue-300">{attr}<button onClick={() => handleRemoveAttr(attr)} className="text-slate-500 hover:text-red-400"><X size={10} /></button></div>
+                                  ))}
+                              </div>
+                          </div>
+                      </div>
+                      <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><AlignLeft size={12} /> 场景备注</label>
+                          <textarea value={editForm.note} onChange={e => setEditForm({...editForm, note: e.target.value})} className="w-full h-40 bg-slate-900 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 outline-none resize-none focus:ring-1 focus:ring-blue-500" placeholder="在此记录线索..." />
+                      </div>
+                  </div>
+                  <div className="p-4 border-t border-slate-700 bg-slate-900/50 flex gap-3">
+                      <button onClick={handleBulkDelete} className="p-3 text-slate-500 hover:text-red-400 hover:bg-red-900/10 rounded-xl transition-all"><Trash2 size={20} /></button>
+                      <button onClick={saveEdit} className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-black transition-all shadow-xl shadow-blue-900/20 active:scale-95">保存更改</button>
+                  </div>
+              </div>
+          )}
       </div>
 
+      {/* Timeline Controls */}
       <div className="shrink-0 h-28 bg-slate-800 rounded-lg border border-slate-700 flex flex-col shadow-inner">
         <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
             <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线点 (Timeline)</h3>
@@ -659,7 +698,7 @@ const MapCanvas: React.FC<Props> = ({
                             <span className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>{tp.label}</span>
                             <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                {linkedAlibis.length > 0 && (
-                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} className="text-purple-400 hover:scale-110" title="查看此点关联的不在场证明">
+                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} className="text-purple-400 hover:scale-110" title="查看证明">
                                    <ShieldCheck size={12}/>
                                  </button>
                                )}
@@ -681,7 +720,7 @@ const MapCanvas: React.FC<Props> = ({
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowAlibiSummary(null)}>
             <div className="bg-slate-800 rounded-2xl border border-purple-500/40 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-                    <h3 className="font-bold text-white flex items-center gap-2"><ShieldCheck size={20} className="text-purple-400" />时间点证明核查: {timePoints.find(t => t.id === showAlibiSummary)?.label}</h3>
+                    <h3 className="font-bold text-white flex items-center gap-2"><ShieldCheck size={20} className="text-purple-400" />证明核查: {timePoints.find(t => t.id === showAlibiSummary)?.label}</h3>
                     <button onClick={() => setShowAlibiSummary(null)}><X size={20} className="text-slate-400" /></button>
                 </div>
                 <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
@@ -705,50 +744,49 @@ const MapCanvas: React.FC<Props> = ({
                         </div>
                     ))}
                     {alibis.filter(a => a.timePointId === showAlibiSummary).length === 0 && (
-                        <div className="text-center py-12 text-slate-600 italic">此时间点尚未建立证明关联</div>
+                        <div className="text-center py-12 text-slate-600 italic">此点未绑定证明</div>
                     )}
                 </div>
             </div>
         </div>
       )}
 
-      {/* Delete Confirmation Modals */}
+      {/* Confirmation Modals (Portals or Global Overlay) */}
       {mapToDelete && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm overflow-hidden p-6 text-center">
               <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div>
               <h3 className="text-xl font-bold text-white mb-2">确认删除场景?</h3>
-              <p className="text-slate-400 text-sm mb-6">场景 "<span className="text-white font-bold">{mapToDelete.name}</span>" 及其关联数据将被物理删除。</p>
+              <p className="text-slate-400 text-sm mb-6">场景 "<span className="text-white font-bold">{mapToDelete.name}</span>" 及其关联数据将被永久删除。</p>
               <div className="flex gap-3"><button onClick={() => setMapToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button><button onClick={handleConfirmDeleteMap} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold">确认</button></div>
           </div>
         </div>
       )}
       {timeToDelete && (
-        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm overflow-hidden p-6 text-center">
               <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div>
-              <h3 className="text-xl font-bold text-white mb-2">确认删除时间点?</h3>
-              <p className="text-slate-400 text-sm mb-6">确定要删除轨迹点吗？</p>
+              <h3 className="text-xl font-bold text-white mb-2">确认删除轨迹点?</h3>
+              <p className="text-slate-400 text-sm mb-6">确定要删除此时间点吗？</p>
               <div className="flex gap-3"><button onClick={() => setTimeToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button><button onClick={handleConfirmDeleteTime} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold">确认</button></div>
           </div>
         </div>
       )}
-      {/* Time/Map Creation Modals */}
       {isTimeModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">添加时间节点</h3><button onClick={() => setIsTimeModalOpen(false)}><X size={20}/></button></div>
                 <div className="p-6"><input ref={timeInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none" placeholder="例如: 12:00" value={newTimeName} onChange={(e) => setNewTimeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveTimePoint()} /></div>
-                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsTimeModalOpen(false)} className="px-4 py-2 text-slate-300">取消</button><button onClick={handleSaveTimePoint} className="px-4 py-2 bg-blue-600 text-white rounded font-bold shadow-lg">确认添加</button></div>
+                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsTimeModalOpen(false)} className="px-4 py-2 text-slate-300">取消</button><button onClick={handleSaveTimePoint} className="px-4 py-2 bg-blue-600 text-white rounded font-bold shadow-lg">确认</button></div>
             </div>
         </div>
       )}
       {isMapModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">新建地图层</h3><button onClick={() => setIsMapModalOpen(false)}><X size={20}/></button></div>
                 <div className="p-6"><input ref={mapInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none" placeholder="例如: 地下室" value={newMapName} onChange={(e) => setNewMapName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddMap()} /></div>
-                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsMapModalOpen(false)} className="px-4 py-2 text-slate-300 text-sm">取消</button><button onClick={handleConfirmAddMap} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold shadow-lg">创建场景</button></div>
+                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsMapModalOpen(false)} className="px-4 py-2 text-slate-300 text-sm">取消</button><button onClick={handleConfirmAddMap} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold shadow-lg">创建</button></div>
             </div>
         </div>
       )}
