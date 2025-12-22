@@ -1,3 +1,4 @@
+
 {
   "name": "mystery-mind-web",
   "private": true,
@@ -12,12 +13,14 @@
   },
   "dependencies": {
     "d3": "^7.9.0",
+    "jszip": "^3.10.1",
     "lucide-react": "^0.561.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/d3": "^7.4.3",
+    "@types/jszip": "^3.4.1",
     "@types/node": "^20.11.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

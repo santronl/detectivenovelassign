@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
@@ -37,7 +38,8 @@ import {
   MapPin,
   Camera,
   User,
-  FileArchive
+  FileArchive,
+  ArrowUpCircle
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -71,7 +73,9 @@ const App: React.FC = () => {
   // 初始化时清理 URL，防止内存泄漏
   useEffect(() => {
     return () => {
-      Object.values(blobUrls).forEach(url => URL.revokeObjectURL(url));
+      // Fix: Line 76 - Argument of type 'unknown' is not assignable to parameter of type 'string'
+      // Object.values can return unknown[] in strict TS environments.
+      Object.values(blobUrls).forEach((url) => URL.revokeObjectURL(url as string));
     };
   }, []);
 
@@ -90,29 +94,28 @@ const App: React.FC = () => {
   }, [errorMessage]);
 
   // 加载图片 Blob 并在运行时创建 URL
-  // Fix: Explicitly check for optional properties and handle type narrowing to avoid 'unknown' assignment errors
   const refreshBlobUrls = async (entities: AppState) => {
     const ids = new Set<string>();
     
     if (entities.characters) {
-      entities.characters.forEach(c => {
+      for (const c of entities.characters) {
         if (typeof c.imageId === 'string') ids.add(c.imageId);
-      });
+      }
     }
     if (entities.clues) {
-      entities.clues.forEach(c => {
+      for (const c of entities.clues) {
         if (typeof c.imageId === 'string') ids.add(c.imageId);
-      });
+      }
     }
     if (entities.locations) {
-      entities.locations.forEach(l => {
+      for (const l of entities.locations) {
         if (typeof l.imageId === 'string') ids.add(l.imageId);
-      });
+      }
     }
     if (entities.maps) {
-      entities.maps.forEach(m => {
+      for (const m of entities.maps) {
         if (typeof m.imageId === 'string') ids.add(m.imageId);
-      });
+      }
     }
 
     const newUrls: Record<string, string> = { ...blobUrls };
@@ -174,18 +177,82 @@ const App: React.FC = () => {
 
   const handleCharImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && editingCharacter) {
+    if (file) {
       setIsCharImageLoading(true);
       try {
         const blob = await compressImage(file, 400, 0.7);
-        const imageId = await handleEntityImageSave(editingCharacter.id, blob);
-        setEditingCharacter({ ...editingCharacter, imageId });
-      } catch (err) {
+        const imageId = await handleEntityImageSave(editingCharacter?.id || 'new_char', blob);
+        if (editingCharacter) {
+          setEditingCharacter({ ...editingCharacter, imageId });
+        }
+      } catch (err: any) {
         setErrorMessage("图片处理失败");
       } finally {
         setIsCharImageLoading(false);
       }
     }
+  };
+
+  // 迁移逻辑：将旧版 Base64 转换为 IndexedDB 存储
+  const migrateLegacyData = async (data: any): Promise<AppState> => {
+    const migrateImage = async (base64?: string) => {
+      if (!base64 || !base64.startsWith('data:')) return undefined;
+      try {
+        const response = await fetch(base64);
+        const blob = await response.blob();
+        const id = `img_migrated_${crypto.randomUUID()}`;
+        await saveImageToDB(id, blob);
+        return id;
+      } catch (e) {
+        console.error("Migration failed for image", e);
+        return undefined;
+      }
+    };
+
+    const newState = { ...INITIAL_STATE, ...data };
+
+    // 人物
+    if (newState.characters) {
+      for (const char of newState.characters) {
+        const oldUrl = (char as any).imageUrl;
+        if (oldUrl && !char.imageId) {
+          char.imageId = await migrateImage(oldUrl);
+          delete (char as any).imageUrl;
+        }
+      }
+    }
+    // 证物
+    if (newState.clues) {
+      for (const clue of newState.clues) {
+        const oldUrl = (clue as any).imageUrl;
+        if (oldUrl && !clue.imageId) {
+          clue.imageId = await migrateImage(oldUrl);
+          delete (clue as any).imageUrl;
+        }
+      }
+    }
+    // 地点
+    if (newState.locations) {
+      for (const loc of newState.locations) {
+        const oldUrl = (loc as any).imageUrl;
+        if (oldUrl && !loc.imageId) {
+          loc.imageId = await migrateImage(oldUrl);
+          delete (loc as any).imageUrl;
+        }
+      }
+    }
+    // 地图
+    if (newState.maps) {
+      for (const map of newState.maps) {
+        const oldUrl = (map as any).imageUrl;
+        if (oldUrl && !map.imageId) {
+          map.imageId = await migrateImage(oldUrl);
+          delete (map as any).imageUrl;
+        }
+      }
+    }
+
+    return newState;
   };
 
   // 核心：打包导出为 ZIP (.mind)
@@ -224,7 +291,7 @@ const App: React.FC = () => {
         setState(prev => ({ ...prev, lastFileName: handle.name }));
         setShowExportModal(false);
         setStatusMessage("档案打包成功");
-      } catch (err) {
+      } catch (err: any) {
         if (err.name !== 'AbortError') throw err;
       }
     } else {
@@ -239,37 +306,50 @@ const App: React.FC = () => {
     }
   };
 
-  // 核心：从 ZIP (.mind) 导入
-  const importArchive = async (file: File) => {
+  // 核心：智能导入 (支持 .mind 或 .json)
+  const handleImportFile = async (file: File) => {
+    const isZip = file.name.endsWith('.mind') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
+    const isJson = file.name.endsWith('.json') || file.type === 'application/json';
+
     try {
-      const zip = await JSZip.loadAsync(file);
-      const dataFile = zip.file("data.json");
-      if (!dataFile) throw new Error("无效的存档文件：缺少 data.json");
+      let parsedData: any;
 
-      const jsonData = await dataFile.async("string");
-      const parsed = JSON.parse(jsonData);
+      if (isZip) {
+        const zip = await JSZip.loadAsync(file);
+        const dataFile = zip.file("data.json");
+        if (!dataFile) throw new Error("无效的存档文件：缺少 data.json");
 
-      // 清理旧图片 (可选，根据业务逻辑决定)
-      // await Promise.all((await getAllImageIdsFromDB()).map(id => deleteImageFromDB(id)));
+        const jsonData = await dataFile.async("string");
+        parsedData = JSON.parse(jsonData);
 
-      // 恢复图片
-      const imgFolder = zip.folder("images");
-      if (imgFolder) {
-        const promises: Promise<void>[] = [];
-        imgFolder.forEach((relativePath, fileObj) => {
-          const id = relativePath;
-          promises.push(fileObj.async("blob").then(blob => saveImageToDB(id, blob)));
-        });
-        await Promise.all(promises);
+        const imgFolder = zip.folder("images");
+        if (imgFolder) {
+          const promises: Promise<void>[] = [];
+          imgFolder.forEach((relativePath: string, fileObj: JSZip.JSZipObject) => {
+            const id = relativePath;
+            promises.push(fileObj.async("blob").then((blob: Blob) => saveImageToDB(id, blob)));
+          });
+          await Promise.all(promises);
+        }
+      } else if (isJson) {
+        const text = await file.text();
+        parsedData = JSON.parse(text);
+        setStatusMessage("检测到旧版 JSON，正在进行格式升级...");
+      } else {
+        throw new Error("不支持的文件类型");
       }
 
+      // 执行迁移逻辑
+      const migratedState = await migrateLegacyData(parsedData);
+      
       setFileHandle(null);
-      setState({ ...INITIAL_STATE, ...parsed, lastFileName: file.name });
-      await refreshBlobUrls(parsed);
-      setStatusMessage("档案解压并加载成功");
-    } catch (err) {
+      setState({ ...migratedState, lastFileName: file.name.replace(/\.json$/, '.mind') });
+      await refreshBlobUrls(migratedState);
+      
+      setStatusMessage(isJson ? "旧版档案已成功迁移至新系统" : "档案加载成功");
+    } catch (err: any) {
       console.error(err);
-      setErrorMessage("解析存档包失败");
+      setErrorMessage("导入失败：文件损坏或格式不正确");
     }
   };
 
@@ -278,14 +358,14 @@ const App: React.FC = () => {
       try {
         const [handle] = await (window as any).showOpenFilePicker({
           types: [{
-            description: 'MysteryMind Bundle',
-            accept: { 'application/zip': ['.mind'] },
+            description: 'MysteryMind Archive',
+            accept: { 'application/zip': ['.mind'], 'application/json': ['.json'] },
           }],
         });
         const file = await handle.getFile();
-        await importArchive(file);
+        await handleImportFile(file);
         setFileHandle(handle);
-      } catch (err) {
+      } catch (err: any) {
         if (err.name !== 'AbortError') setErrorMessage("无法打开文件");
       }
     } else {
@@ -293,7 +373,7 @@ const App: React.FC = () => {
     }
   };
 
-  // Location Handlers
+  // 其余 Handle 逻辑保持不变...
   const handleAddLocation = (loc: Location) => setState(p => ({ ...p, locations: [...p.locations, loc] }));
   const handleUpdateLocation = (loc: Location) => setState(p => ({ ...p, locations: p.locations.map(l => l.id === loc.id ? loc : l) }));
   const handleDeleteLocation = (id: string) => setState(p => ({ 
@@ -474,9 +554,9 @@ const App: React.FC = () => {
               <div className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${fileHandle ? 'bg-green-900/20 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
                  {fileHandle ? <Link2 size={12}/> : <Link2Off size={12}/>} {fileHandle ? '已关联本地文件' : isIframe ? '沙盒环境受限' : '未关联文件'}
               </div>
-              <input type="file" ref={fileImportRef} onChange={(e) => e.target.files?.[0] && importArchive(e.target.files[0])} accept=".mind" className="hidden" />
-              <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打开存档</span></button>
-              <button onClick={() => setShowExportModal(true)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><Save size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打包导出</span></button>
+              <input type="file" ref={fileImportRef} onChange={(e) => e.target.files?.[0] && handleImportFile(e.target.files[0])} accept=".mind,.json" className="hidden" />
+              <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">导入存档</span></button>
+              <button onClick={() => exportArchive(false)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><Save size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打包导出</span></button>
             </div>
           </div>
         </div>
