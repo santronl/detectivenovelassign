@@ -167,7 +167,7 @@ const App: React.FC = () => {
         alibis: prev.alibis.map(a => ({
           ...a,
           character_ids: a.character_ids.filter(id => id !== charId)
-        })).filter(a => a.character_ids.length > 0), // Filter out alibis with no characters left
+        })).filter(a => a.character_ids.length > 0), 
         timelineData: updatedTimelineData
       };
     });
@@ -629,6 +629,7 @@ const App: React.FC = () => {
                   <AlibiMatrix 
                     alibis={state.alibis} 
                     characters={state.characters}
+                    timePoints={state.timePoints}
                     onAddAlibi={handleAddAlibi}
                     onUpdateAlibi={handleUpdateAlibi}
                     onDeleteAlibi={handleDeleteAlibi}
@@ -638,7 +639,7 @@ const App: React.FC = () => {
             )}
             {activeTab === 'map' && (
               <MapCanvas 
-                maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues}
+                maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis}
                 timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} 
                 itemTimelineData={state.itemTimelineData} characters={state.characters}
                 onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))}

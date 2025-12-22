@@ -38,8 +38,9 @@ export interface Clue {
 }
 
 export interface Alibi {
-  character_ids: string[]; // Changed from character_id to support multiple characters
+  character_ids: string[];
   time_period: string;
+  timePointId?: string; // 新增：关联的时间线点 ID
   location: string;
   status: '确凿' | '模糊' | '无证明';
   details?: string;
@@ -101,7 +102,7 @@ export interface AppState {
   spaces: Space[];
   timePoints: TimePoint[];
   timelineData: TimelineData;
-  itemTimelineData: ItemTimelineData; // Added: Track clues on map
+  itemTimelineData: ItemTimelineData; 
   
   currentMapId: string;
   currentTimeId: string;
@@ -130,7 +131,7 @@ export const INITIAL_STATE: AppState = {
   spaces: [],
   timePoints: [{ id: 't1', label: '初始时刻', order: 0 }],
   timelineData: {},
-  itemTimelineData: {}, // Added
+  itemTimelineData: {}, 
   
   currentMapId: 'default',
   currentTimeId: 't1',

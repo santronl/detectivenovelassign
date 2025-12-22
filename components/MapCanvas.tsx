@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
-import { Space, Point, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Character, Clue } from '../types';
-import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser } from 'lucide-react';
+import { Space, Point, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Character, Clue, Alibi } from '../types';
+import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser, ShieldCheck } from 'lucide-react';
 import { compressImage } from '../utils/imageProcessor';
 
 interface Props {
@@ -9,6 +9,7 @@ interface Props {
   currentMapId: string;
   spaces: Space[]; 
   clues: Clue[];
+  alibis: Alibi[]; // 新增：不在场证明
   
   // Timeline Props
   timePoints: TimePoint[];
@@ -47,10 +48,11 @@ interface ClipboardItem {
 }
 
 const MapCanvas: React.FC<Props> = ({ 
-    maps, currentMapId, spaces, clues,
+    maps, currentMapId, spaces, clues, alibis,
     timePoints, currentTimeId, timelineData, itemTimelineData = {}, characters,
     onUpdateMaps, onDeleteMap, onCreateMap, onSelectMap, onUpdateSpaces,
-    onUpdateTimePoints, onSelectTime, onUpdatePlacements, onUpdateItemPlacements, onAddClue,
+    onUpdateTimePoints, onSelectTime,
+    onUpdatePlacements, onUpdateItemPlacements, onAddClue,
     onOpenClueModal
 }) => {
   const [isDrawing, setIsDrawing] = useState(false);
@@ -64,6 +66,9 @@ const MapCanvas: React.FC<Props> = ({
   // Clipboard state
   const [clipboard, setClipboard] = useState<ClipboardItem[]>([]);
   const [isCutMode, setIsCutMode] = useState(false);
+
+  // Alibi summary modal
+  const [showAlibiSummary, setShowAlibiSummary] = useState<string | null>(null);
 
   const [zoom, setZoom] = useState(100); 
   const [zoomInput, setZoomInput] = useState('100');
@@ -98,6 +103,12 @@ const MapCanvas: React.FC<Props> = ({
   const currentSpaces = spaces.filter(s => s.mapId === currentMap.id);
   const currentPlacements = timelineData[currentTimeId] || [];
   const currentItemPlacements = itemTimelineData[currentTimeId] || [];
+
+  // Clear selection when map or time changes
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setEditForm(null);
+  }, [currentMapId, currentTimeId]);
 
   useEffect(() => {
     if (isTimeModalOpen && timeInputRef.current) setTimeout(() => timeInputRef.current?.focus(), 100);
@@ -275,13 +286,13 @@ const MapCanvas: React.FC<Props> = ({
         const newlySelected = new Set(e.ctrlKey ? selectedIds : []);
         
         currentPlacements.forEach(p => {
-          if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
+          if (p.mapId === currentMapId && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
             newlySelected.add(p.characterId);
           }
         });
 
         currentItemPlacements.forEach(p => {
-          if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
+          if (p.mapId === currentMapId && p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
             newlySelected.add(p.clueId);
           }
         });
@@ -366,12 +377,11 @@ const MapCanvas: React.FC<Props> = ({
     }
   };
 
-  // Selection actions
   const handleBulkDelete = () => {
-    const newPlacements = currentPlacements.filter(p => !selectedIds.has(p.characterId));
+    const newPlacements = currentPlacements.filter(p => !(selectedIds.has(p.characterId) && p.mapId === currentMapId));
     onUpdatePlacements(currentTimeId, newPlacements);
 
-    const newItemPlacements = currentItemPlacements.filter(p => !selectedIds.has(p.clueId));
+    const newItemPlacements = currentItemPlacements.filter(p => !(selectedIds.has(p.clueId) && p.mapId === currentMapId));
     onUpdateItemPlacements(currentTimeId, newItemPlacements);
 
     onUpdateSpaces(spaces.filter(s => !selectedIds.has(s.id)));
@@ -382,11 +392,11 @@ const MapCanvas: React.FC<Props> = ({
   const handleBulkCopy = (isCut = false) => {
     const items: ClipboardItem[] = [];
     selectedIds.forEach(id => {
-      const charP = currentPlacements.find(p => p.characterId === id);
+      const charP = currentPlacements.find(p => p.characterId === id && p.mapId === currentMapId);
       if (charP) {
         items.push({ id, type: 'character', relX: charP.x, relY: charP.y });
       }
-      const itemP = currentItemPlacements.find(p => p.clueId === id);
+      const itemP = currentItemPlacements.find(p => p.clueId === id && p.mapId === currentMapId);
       if (itemP) {
         items.push({ id, type: 'item', relX: itemP.x, relY: itemP.y });
       }
@@ -421,13 +431,19 @@ const MapCanvas: React.FC<Props> = ({
       if (item.type === 'character') {
         const existsIdx = charPlacements.findIndex(p => p.characterId === item.id);
         const placement = { characterId: item.id, mapId: currentMapId, x: (item.relX || 50) + 2, y: (item.relY || 50) + 2 };
-        if (existsIdx > -1) charPlacements[existsIdx] = placement;
-        else charPlacements.push(placement);
+        if (existsIdx > -1) {
+            charPlacements[existsIdx] = placement;
+        } else {
+            charPlacements.push(placement);
+        }
       } else if (item.type === 'item') {
         const existsIdx = itemPlacements.findIndex(p => p.clueId === item.id);
         const placement = { clueId: item.id, mapId: currentMapId, x: (item.relX || 50) + 2, y: (item.relY || 50) + 2 };
-        if (existsIdx > -1) itemPlacements[existsIdx] = placement;
-        else itemPlacements.push(placement);
+        if (existsIdx > -1) {
+            itemPlacements[existsIdx] = placement;
+        } else {
+            itemPlacements.push(placement);
+        }
       } else if (item.type === 'space') {
         const newSpace = { 
           ...item.data, 
@@ -500,8 +516,8 @@ const MapCanvas: React.FC<Props> = ({
         <div className="flex items-center gap-3">
             {selectedIds.size > 0 && (
               <div className="flex items-center gap-1 bg-slate-900/80 backdrop-blur border border-blue-500/40 p-1 rounded-xl shadow-lg animate-in fade-in slide-in-from-top-2">
-                <button onClick={() => handleBulkCopy(false)} title="复制到剪贴板" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Copy size={14}/></button>
-                <button onClick={() => handleBulkCopy(true)} title="剪切所选" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Scissors size={14}/></button>
+                <button onClick={() => handleBulkCopy(false)} title="复制当前可见项" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Copy size={14}/></button>
+                <button onClick={() => handleBulkCopy(true)} title="剪切当前可见项" className="p-1.5 hover:bg-slate-700 rounded-lg text-blue-400 transition-colors"><Scissors size={14}/></button>
                 <button onClick={handleBulkDelete} title="批量删除" className="p-1.5 hover:bg-red-900/20 rounded-lg text-red-400 transition-colors"><Trash2 size={14}/></button>
                 <div className="w-[1px] h-4 bg-slate-700 mx-1"></div>
                 <div className="px-2 text-[10px] font-bold text-slate-400">已选 {selectedIds.size}</div>
@@ -510,60 +526,31 @@ const MapCanvas: React.FC<Props> = ({
 
             {clipboard.length > 0 && (
                <div className="flex items-center gap-1 bg-green-600/10 border border-green-500/30 rounded-xl p-0.5">
-                 <button 
-                   onClick={handlePaste} 
-                   className="flex items-center gap-2 px-3 py-1.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg text-xs font-bold transition-all shadow-lg animate-in pulse duration-1000 infinite"
-                 >
-                   <Clipboard size={14}/> 粘贴 ({clipboard.length})
-                 </button>
-                 <button 
-                   onClick={handleClearClipboard}
-                   title="清空剪贴板"
-                   className="p-1.5 hover:bg-slate-700 text-slate-500 hover:text-red-400 rounded-lg transition-colors"
-                 >
-                   <Eraser size={14} />
-                 </button>
+                 <button onClick={handlePaste} className="flex items-center gap-2 px-3 py-1.5 bg-green-600/20 hover:bg-green-600/30 text-green-400 rounded-lg text-xs font-bold transition-all shadow-lg animate-in pulse duration-1000 infinite"><Clipboard size={14}/> 粘贴 ({clipboard.length})</button>
+                 <button onClick={handleClearClipboard} title="清空剪贴板" className="p-1.5 hover:bg-slate-700 text-slate-500 hover:text-red-400 rounded-lg transition-colors"><Eraser size={14} /></button>
                </div>
             )}
 
             <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1 rounded-lg border border-slate-700">
                 <Maximize2 size={14} className="text-slate-400" />
-                <input 
-                    type="text"
-                    value={heightInput}
-                    onChange={(e) => setHeightInput(e.target.value)}
-                    onBlur={handleHeightBlur}
-                    onKeyDown={(e) => e.key === 'Enter' && handleHeightBlur()}
-                    className="w-16 h-8 bg-slate-800 text-white text-xs border border-slate-700 rounded text-center outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                <input type="text" value={heightInput} onChange={(e) => setHeightInput(e.target.value)} onBlur={handleHeightBlur} onKeyDown={(e) => e.key === 'Enter' && handleHeightBlur()} className="w-16 h-8 bg-slate-800 text-white text-xs border border-slate-700 rounded text-center outline-none focus:ring-1 focus:ring-blue-500" />
             </div>
 
             <div className="flex items-center gap-2 bg-slate-900/50 px-3 py-1 rounded-lg border border-slate-700">
                 <ZoomIn size={14} className="text-slate-400" />
-                <input 
-                    type="text"
-                    value={zoomInput}
-                    onChange={(e) => setZoomInput(e.target.value)}
-                    onBlur={handleZoomBlur}
-                    onKeyDown={(e) => e.key === 'Enter' && handleZoomBlur()}
-                    className="w-16 h-8 bg-slate-800 text-white text-xs border border-slate-700 rounded text-center outline-none focus:ring-1 focus:ring-blue-500"
-                />
+                <input type="text" value={zoomInput} onChange={(e) => setZoomInput(e.target.value)} onBlur={handleZoomBlur} onKeyDown={(e) => e.key === 'Enter' && handleZoomBlur()} className="w-16 h-8 bg-slate-800 text-white text-xs border border-slate-700 rounded text-center outline-none focus:ring-1 focus:ring-blue-500" />
             </div>
 
             <div className="flex gap-2">
                 <input type="file" accept="image/*" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
-                <button onClick={() => fileInputRef.current?.click()} title="更换背景图" className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">
-                    {isCompressing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}
-                </button>
+                <button onClick={() => fileInputRef.current?.click()} title="更换背景图" className="p-1.5 bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors">{isCompressing ? <Loader2 className="animate-spin" size={18} /> : <Upload size={18} />}</button>
                 {isDrawing ? (
                     <>
                         <button onClick={finishShape} className="px-3 py-1.5 bg-green-600 rounded text-sm font-bold shadow-lg">完成</button>
                         <button onClick={() => { setIsDrawing(false); setCurrentPoints([]); }} className="px-3 py-1.5 bg-red-600 rounded text-sm font-bold">取消</button>
                     </>
                 ) : (
-                    <button onClick={() => setIsDrawing(true)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-bold shadow-lg transition-all">
-                        <Plus size={16} /> 绘制区域
-                    </button>
+                    <button onClick={() => setIsDrawing(true)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-bold shadow-lg transition-all"><Plus size={16} /> 绘制区域</button>
                 )}
             </div>
         </div>
@@ -584,18 +571,13 @@ const MapCanvas: React.FC<Props> = ({
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     onClick={handleCanvasClick}
-                    style={{ 
-                        width: displaySize.w, 
-                        height: displaySize.h,
-                        minWidth: typeof displaySize.w === 'number' ? displaySize.w : '100%',
-                        minHeight: typeof displaySize.h === 'number' ? displaySize.h : '100%'
-                    }}
+                    style={{ width: displaySize.w, height: displaySize.h }}
                     className={`relative shadow-2xl transition-all duration-75 mx-auto ${isDrawing ? 'cursor-crosshair' : 'cursor-default'} ${dragOverMap ? 'ring-2 ring-blue-500 ring-inset' : ''}`}
                 >
                     {!currentMap.imageUrl ? (
                         <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 pointer-events-none select-none border border-slate-700/30">
                             <MapPin size={48} className="mb-2 opacity-50" />
-                            <p className="text-sm font-medium">请上传背景图或从左侧清单拖入</p>
+                            <p className="text-sm font-medium">请上传背景图</p>
                         </div>
                     ) : (
                         <img src={currentMap.imageUrl} className="w-full h-full pointer-events-none select-none" alt="map" onLoad={(e) => setNaturalSize({w: e.currentTarget.naturalWidth, h: e.currentTarget.naturalHeight})} />
@@ -604,23 +586,12 @@ const MapCanvas: React.FC<Props> = ({
                     <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
                         {currentSpaces.map(space => space.coordinates && (
                             <g key={space.id} onClick={(e) => toggleSelection(e, space.id)}>
-                                <polygon points={pointsToString(space.coordinates)} className={`stroke-[0.5] hover:stroke-1 hover:fill-blue-500/40 transition-all cursor-pointer 
-                                    ${selectedIds.has(space.id) ? 'fill-blue-500/50 stroke-blue-300 stroke-[1] drop-shadow-lg' : 'fill-blue-500/10 stroke-blue-500/30'} 
-                                    ${space.attributes.includes('密室') ? 'fill-purple-500/20 stroke-purple-400' : ''}`} 
-                                />
+                                <polygon points={pointsToString(space.coordinates)} className={`stroke-[0.5] hover:stroke-1 hover:fill-blue-500/40 transition-all cursor-pointer ${selectedIds.has(space.id) ? 'fill-blue-500/50 stroke-blue-300 stroke-[1] drop-shadow-lg' : 'fill-blue-500/10 stroke-blue-500/30'} ${space.attributes.includes('密室') ? 'fill-purple-500/20 stroke-purple-400' : ''}`} />
                             </g>
                         ))}
                         {currentPoints.length > 0 && <polygon points={pointsToString(currentPoints)} className="fill-blue-500/20 stroke-blue-400 stroke-[0.5]" />}
-                        
                         {selectionBox && (
-                          <rect 
-                            x={Math.min(selectionBox.x1, selectionBox.x2)}
-                            y={Math.min(selectionBox.y1, selectionBox.y2)}
-                            width={Math.abs(selectionBox.x1 - selectionBox.x2)}
-                            height={Math.abs(selectionBox.y1 - selectionBox.y2)}
-                            className="fill-blue-500/10 stroke-blue-400 stroke-[0.2]"
-                            strokeDasharray="1,1"
-                          />
+                          <rect x={Math.min(selectionBox.x1, selectionBox.x2)} y={Math.min(selectionBox.y1, selectionBox.y2)} width={Math.abs(selectionBox.x1 - selectionBox.x2)} height={Math.abs(selectionBox.y1 - selectionBox.y2)} className="fill-blue-500/10 stroke-blue-400 stroke-[0.2]" strokeDasharray="1,1" />
                         )}
                     </svg>
 
@@ -629,14 +600,7 @@ const MapCanvas: React.FC<Props> = ({
                         if (!char) return null;
                         const isSelected = selectedIds.has(p.characterId);
                         return (
-                            <div 
-                              key={p.characterId} 
-                              draggable 
-                              onDragStart={(e) => handleTokenDragStart(e, p.characterId)} 
-                              onClick={(e) => toggleSelection(e, p.characterId)}
-                              className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-10 transition-all ${isSelected ? 'scale-110' : ''}`} 
-                              style={{ left: `${p.x}%`, top: `${p.y}%` }}
-                            >
+                            <div key={p.characterId} draggable onDragStart={(e) => handleTokenDragStart(e, p.characterId)} onClick={(e) => toggleSelection(e, p.characterId)} className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-10 transition-all ${isSelected ? 'scale-110' : ''}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
                                 <div className={`w-8 h-8 rounded-full bg-slate-800 border-2 shadow-lg flex items-center justify-center text-xs font-bold text-white relative transition-all ${isSelected ? 'border-blue-400 ring-4 ring-blue-400/20' : 'border-white'}`}>
                                     {char.name.charAt(0)}
                                     <div className={`absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/75 text-[10px] px-1 rounded transition-opacity shadow-black/50 shadow-md ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>{char.name}</div>
@@ -650,22 +614,10 @@ const MapCanvas: React.FC<Props> = ({
                         if (!clue) return null;
                         const isSelected = selectedIds.has(p.clueId);
                         return (
-                            <div 
-                              key={p.clueId} 
-                              draggable 
-                              onDragStart={(e) => handleItemDragStart(e, p.clueId)} 
-                              onClick={(e) => toggleSelection(e, p.clueId)}
-                              onDoubleClick={(e) => { e.stopPropagation(); onOpenClueModal?.(clue); }}
-                              className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-20 transition-all ${isSelected ? 'scale-110' : ''}`} 
-                              style={{ left: `${p.x}%`, top: `${p.y}%` }}
-                            >
+                            <div key={p.clueId} draggable onDragStart={(e) => handleItemDragStart(e, p.clueId)} onClick={(e) => toggleSelection(e, p.clueId)} onDoubleClick={(e) => { e.stopPropagation(); onOpenClueModal?.(clue); }} className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-20 transition-all ${isSelected ? 'scale-110' : ''}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
                                 <div className={`w-7 h-7 bg-amber-500 rounded-md border-2 shadow-lg flex items-center justify-center relative transition-all ${isSelected ? 'border-blue-400 ring-4 ring-blue-400/20' : 'border-amber-900/50'}`}>
-                                    <div className="text-amber-900">
-                                        <Package size={14} strokeWidth={3} />
-                                    </div>
-                                    <div className={`absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-amber-900/90 text-[10px] px-1.5 py-0.5 rounded text-amber-100 transition-opacity font-bold shadow-xl border border-amber-500/30 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                                        {clue.name}
-                                    </div>
+                                    <div className="text-amber-900"><Package size={14} strokeWidth={3} /></div>
+                                    <div className={`absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-amber-900/90 text-[10px] px-1.5 py-0.5 rounded text-amber-100 transition-opacity font-bold shadow-xl border border-amber-500/30 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>{clue.name}</div>
                                 </div>
                             </div>
                         );
@@ -674,93 +626,16 @@ const MapCanvas: React.FC<Props> = ({
 
                 {selectedIds.size > 0 && editForm && (
                     <div className="absolute right-4 top-4 bottom-4 w-80 bg-slate-800/95 backdrop-blur-md border border-slate-600 rounded-2xl shadow-2xl z-30 flex flex-col animate-in slide-in-from-right duration-200 overflow-hidden">
-                        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-                            <h3 className="font-bold text-white flex items-center gap-2 text-sm">
-                              <Edit3 size={16} className="text-blue-400" />
-                              {selectedIds.size > 1 ? `批量属性编辑 (${selectedIds.size})` : '区域档案编辑'}
-                            </h3>
-                            <button onClick={() => { setSelectedIds(new Set()); setEditForm(null); }} className="text-slate-500 hover:text-white transition-colors"><X size={20} /></button>
-                        </div>
+                        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50"><h3 className="font-bold text-white flex items-center gap-2 text-sm"><Edit3 size={16} className="text-blue-400" />{selectedIds.size > 1 ? `批量属性编辑 (${selectedIds.size})` : '区域档案编辑'}</h3><button onClick={() => { setSelectedIds(new Set()); setEditForm(null); }} className="text-slate-500 hover:text-white transition-colors"><X size={20} /></button></div>
                         <div className="p-5 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
-                            <div className="space-y-2">
-                               <label className="text-[11px] font-bold text-slate-500 mb-1 block uppercase tracking-wider flex items-center gap-2"><MapPin size={12} /> 名称</label>
-                               <input 
-                                 value={editForm.name} 
-                                 onChange={e => setEditForm({...editForm, name: e.target.value})} 
-                                 className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all" 
-                                 placeholder={selectedIds.size > 1 ? "统一设置所选区域名称" : "区域名称"}
-                               />
+                            <div className="space-y-2"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><MapPin size={12} /> 名称</label><input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white outline-none" placeholder={selectedIds.size > 1 ? "统一设置" : "名称"} /></div>
+                            <div className="space-y-3"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><Tag size={12} /> 属性与标签</label>
+                               <div className="flex flex-wrap gap-2">{['密室', '上锁', '危险', '发现点'].map(attr => (<button key={attr} onClick={() => setEditForm({ ...editForm, attributes: editForm.attributes.includes(attr) ? editForm.attributes.filter(a => a !== attr) : [...editForm.attributes, attr] })} className={`text-[10px] px-3 py-1.5 rounded-full border transition-all font-bold ${editForm.attributes.includes(attr) ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'}`}>{attr}</button>))}</div>
+                               <div className="pt-2"><div className="flex gap-2"><div className="relative flex-1"><Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14} /><input value={customAttrInput} onChange={(e) => setCustomAttrInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAddCustomAttr()} placeholder="自定义标签..." className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-300 outline-none" /></div><button onClick={handleAddCustomAttr} className="p-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"><Plus size={18} /></button></div><div className="flex flex-wrap gap-1.5 mt-3">{editForm.attributes.filter(a => !['密室', '上锁', '危险', '发现点'].includes(a)).map(attr => (<div key={attr} className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700 px-2.5 py-1 rounded-lg text-[10px] text-blue-300">{attr}<button onClick={() => handleRemoveAttr(attr)} className="text-slate-500 hover:text-red-400"><X size={10} /></button></div>))}</div></div>
                             </div>
-
-                            <div className="space-y-3">
-                               <label className="text-[11px] font-bold text-slate-500 mb-1 block uppercase tracking-wider flex items-center gap-2"><Tag size={12} /> 属性与标签</label>
-                               <div className="flex flex-wrap gap-2">
-                                 {['密室', '上锁', '危险', '发现点'].map(attr => (
-                                    <button 
-                                      key={attr} 
-                                      onClick={() => setEditForm({ ...editForm, attributes: editForm.attributes.includes(attr) ? editForm.attributes.filter(a => a !== attr) : [...editForm.attributes, attr] })} 
-                                      className={`text-[10px] px-3 py-1.5 rounded-full border transition-all font-bold ${editForm.attributes.includes(attr) ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'}`}
-                                    >
-                                      {attr}
-                                    </button>
-                                 ))}
-                               </div>
-                               
-                               <div className="pt-2">
-                                 <div className="flex gap-2">
-                                    <div className="relative flex-1">
-                                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14} />
-                                      <input 
-                                        value={customAttrInput}
-                                        onChange={(e) => setCustomAttrInput(e.target.value)}
-                                        onKeyDown={(e) => e.key === 'Enter' && handleAddCustomAttr()}
-                                        placeholder="输入自定义标签..."
-                                        className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-300 focus:ring-2 focus:ring-blue-500/50 outline-none"
-                                      />
-                                    </div>
-                                    <button 
-                                      onClick={handleAddCustomAttr}
-                                      className="p-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"
-                                    >
-                                      <Plus size={18} />
-                                    </button>
-                                 </div>
-                                 <div className="flex flex-wrap gap-1.5 mt-3">
-                                   {editForm.attributes.filter(a => !['密室', '上锁', '危险', '发现点'].includes(a)).map(attr => (
-                                      <div key={attr} className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700 px-2.5 py-1 rounded-lg text-[10px] text-blue-300 animate-in fade-in zoom-in-95">
-                                        {attr}
-                                        <button onClick={() => handleRemoveAttr(attr)} className="text-slate-500 hover:text-red-400 transition-colors"><X size={10} /></button>
-                                      </div>
-                                   ))}
-                                 </div>
-                               </div>
-                            </div>
-
-                            <div className="space-y-2">
-                               <label className="text-[11px] font-bold text-slate-500 mb-1 block uppercase tracking-wider flex items-center gap-2"><AlignLeft size={12} /> 现场备注 / 环境描写</label>
-                               <textarea 
-                                 value={editForm.note} 
-                                 onChange={e => setEditForm({...editForm, note: e.target.value})} 
-                                 className="w-full h-32 bg-slate-900 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 leading-relaxed focus:ring-2 focus:ring-blue-500/50 outline-none resize-none transition-all custom-scrollbar font-mono"
-                                 placeholder="在此记录详细备注..."
-                               />
-                            </div>
+                            <div className="space-y-2"><label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2"><AlignLeft size={12} /> 备注</label><textarea value={editForm.note} onChange={e => setEditForm({...editForm, note: e.target.value})} className="w-full h-32 bg-slate-900 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 outline-none resize-none" placeholder="详细记录..." /></div>
                         </div>
-                        <div className="p-4 border-t border-slate-700 bg-slate-900/50 flex gap-3">
-                            <button 
-                              onClick={handleBulkDelete} 
-                              className="p-3 text-slate-500 hover:text-red-400 hover:bg-red-900/10 rounded-xl transition-all"
-                              title="删除选中项"
-                            >
-                              <Trash2 size={20} />
-                            </button>
-                            <button 
-                              onClick={saveEdit} 
-                              className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-black transition-all shadow-xl shadow-blue-900/20 active:scale-95"
-                            >
-                              保存档案
-                            </button>
-                        </div>
+                        <div className="p-4 border-t border-slate-700 bg-slate-900/50 flex gap-3"><button onClick={handleBulkDelete} className="p-3 text-slate-500 hover:text-red-400 hover:bg-red-900/10 rounded-xl transition-all"><Trash2 size={20} /></button><button onClick={saveEdit} className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-black transition-all shadow-xl shadow-blue-900/20 active:scale-95">保存</button></div>
                     </div>
                 )}
              </div>
@@ -771,78 +646,109 @@ const MapCanvas: React.FC<Props> = ({
         <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
             <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线点 (Timeline)</h3>
             <div className="flex items-center gap-2">
-               {clipboard.length > 0 && (
-                 <div className="text-[10px] text-green-400 font-bold flex items-center gap-1.5 bg-green-900/30 px-2 py-0.5 rounded border border-green-500/20 animate-pulse">
-                   <Clipboard size={10}/> 剪贴板已就绪
-                   <button onClick={handleClearClipboard} className="text-slate-500 hover:text-red-400 ml-1" title="清空"><X size={10} /></button>
-                 </div>
-               )}
+               {clipboard.length > 0 && <div className="text-[10px] text-green-400 font-bold flex items-center gap-1.5 bg-green-900/30 px-2 py-0.5 rounded border border-green-500/20 animate-pulse"><Clipboard size={10}/> 剪贴板已就绪<button onClick={handleClearClipboard} className="text-slate-500 hover:text-red-400 ml-1"><X size={10} /></button></div>}
                <button onClick={() => { setNewTimeName(""); setIsTimeModalOpen(true); }} className="text-slate-400 hover:text-white p-1 hover:bg-slate-700 rounded transition-colors"><Plus size={14} /></button>
             </div>
         </div>
         <div className="flex-1 overflow-x-auto flex items-center p-2 gap-2 custom-scrollbar">
-            {timePoints.map((tp) => (
-                <div key={tp.id} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 w-40 h-full p-2 rounded cursor-pointer border transition-all relative flex flex-col justify-between ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-lg' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
-                    <div className="flex justify-between items-start">
-                        <span className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>{tp.label}</span>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                           {clipboard.length > 0 && <button onClick={(e) => { e.stopPropagation(); onSelectTime(tp.id); handlePaste(); }} className="text-green-400 hover:scale-110" title="在此时间点粘贴"><Clipboard size={12}/></button>}
-                           {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} className="text-slate-600 hover:text-red-400"><X size={12} /></button>}
+            {timePoints.map((tp) => {
+                const linkedAlibis = alibis.filter(a => a.timePointId === tp.id);
+                return (
+                    <div key={tp.id} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 w-44 h-full p-2 rounded cursor-pointer border transition-all relative flex flex-col justify-between ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-lg' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
+                        <div className="flex justify-between items-start">
+                            <span className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>{tp.label}</span>
+                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                               {linkedAlibis.length > 0 && (
+                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} className="text-purple-400 hover:scale-110" title="查看此点关联的不在场证明">
+                                   <ShieldCheck size={12}/>
+                                 </button>
+                               )}
+                               {clipboard.length > 0 && <button onClick={(e) => { e.stopPropagation(); onSelectTime(tp.id); handlePaste(); }} className="text-green-400 hover:scale-110" title="粘贴在此点"><Clipboard size={12}/></button>}
+                               {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} className="text-slate-600 hover:text-red-400"><X size={12} /></button>}
+                            </div>
+                        </div>
+                        <div className="flex items-end justify-between mt-1">
+                             <div className="text-[10px] text-slate-500 tracking-tighter uppercase font-mono">{timelineData[tp.id]?.length || 0}👤 | {itemTimelineData[tp.id]?.length || 0}📦 | {linkedAlibis.length}🛡️</div>
+                             {currentTimeId === tp.id && <div className="w-full h-0.5 bg-orange-500 absolute bottom-0 left-0 right-0 rounded-b"></div>}
                         </div>
                     </div>
-                    <div className="flex items-end justify-between mt-1">
-                         <div className="text-[10px] text-slate-500 tracking-tighter uppercase">{timelineData[tp.id]?.length || 0}👤 | {itemTimelineData[tp.id]?.length || 0}📦</div>
-                         {currentTimeId === tp.id && <div className="w-full h-0.5 bg-orange-500 absolute bottom-0 left-0 right-0 rounded-b"></div>}
-                    </div>
-                </div>
-            ))}
+                );
+            })}
         </div>
       </div>
 
+      {showAlibiSummary && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowAlibiSummary(null)}>
+            <div className="bg-slate-800 rounded-2xl border border-purple-500/40 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+                    <h3 className="font-bold text-white flex items-center gap-2"><ShieldCheck size={20} className="text-purple-400" />时间点证明核查: {timePoints.find(t => t.id === showAlibiSummary)?.label}</h3>
+                    <button onClick={() => setShowAlibiSummary(null)}><X size={20} className="text-slate-400" /></button>
+                </div>
+                <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar space-y-4">
+                    {alibis.filter(a => a.timePointId === showAlibiSummary).map((alibi, i) => (
+                        <div key={i} className="bg-slate-900/50 border border-slate-700 rounded-xl p-4 space-y-3">
+                            <div className="flex flex-wrap gap-1.5">
+                                {alibi.character_ids.map(cid => (
+                                    <span key={cid} className="px-2 py-0.5 bg-blue-900/30 text-blue-300 border border-blue-500/30 rounded text-[10px] font-bold">
+                                        {characters.find(c => c.id === cid)?.name}
+                                    </span>
+                                ))}
+                                <span className={`ml-auto px-2 py-0.5 rounded text-[10px] font-bold border ${alibi.status === '确凿' ? 'bg-green-900/20 text-green-400 border-green-500/30' : alibi.status === '模糊' ? 'bg-yellow-900/20 text-yellow-400 border-yellow-500/30' : 'bg-red-900/20 text-red-400 border-red-500/30'}`}>
+                                    {alibi.status}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-4 text-xs text-slate-400">
+                                <span className="flex items-center gap-1"><MapPin size={12}/> {alibi.location}</span>
+                                <span className="flex items-center gap-1"><Clock size={12}/> {alibi.time_period}</span>
+                            </div>
+                            {alibi.details && <p className="text-xs text-slate-500 italic border-l-2 border-slate-700 pl-3 py-1 font-mono">{alibi.details}</p>}
+                        </div>
+                    ))}
+                    {alibis.filter(a => a.timePointId === showAlibiSummary).length === 0 && (
+                        <div className="text-center py-12 text-slate-600 italic">此时间点尚未建立证明关联</div>
+                    )}
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modals */}
       {mapToDelete && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm overflow-hidden p-6 text-center">
               <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div>
               <h3 className="text-xl font-bold text-white mb-2">确认删除场景?</h3>
-              <p className="text-slate-400 text-sm mb-6">场景 "<span className="text-white font-bold">{mapToDelete.name}</span>" 及其所有标注数据将被抹除。</p>
-              <div className="flex gap-3">
-                <button onClick={() => setMapToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button>
-                <button onClick={handleConfirmDeleteMap} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold shadow-lg">确认物理删除</button>
-              </div>
+              <p className="text-slate-400 text-sm mb-6">场景 "<span className="text-white font-bold">{mapToDelete.name}</span>" 及其关联数据将被物理删除。</p>
+              <div className="flex gap-3"><button onClick={() => setMapToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button><button onClick={handleConfirmDeleteMap} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold">确认</button></div>
           </div>
         </div>
       )}
-
       {timeToDelete && (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm overflow-hidden p-6 text-center">
               <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div>
               <h3 className="text-xl font-bold text-white mb-2">确认删除时间点?</h3>
-              <p className="text-slate-400 text-sm mb-6">确定要删除时间点 "<span className="text-white font-bold">{timePoints.find(t => t.id === timeToDelete)?.label}</span>" 吗？</p>
-              <div className="flex gap-3">
-                <button onClick={() => setTimeToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button>
-                <button onClick={handleConfirmDeleteTime} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold shadow-lg">确认物理删除</button>
-              </div>
+              <p className="text-slate-400 text-sm mb-6">确定要删除轨迹点吗？</p>
+              <div className="flex gap-3"><button onClick={() => setTimeToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 text-slate-200 rounded-xl font-bold">取消</button><button onClick={handleConfirmDeleteTime} className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl font-bold">确认</button></div>
           </div>
         </div>
       )}
-
+      {/* Time/Map Creation Modals */}
       {isTimeModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
-                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">添加时间节点</h3><button onClick={() => setIsTimeModalOpen(false)}><X size={20} className="text-slate-400" /></button></div>
-                <div className="p-6"><input ref={timeInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="例如: 12:00" value={newTimeName} onChange={(e) => setNewTimeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveTimePoint()} /></div>
-                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsTimeModalOpen(false)} className="px-4 py-2 text-slate-300 text-sm">取消</button><button onClick={handleSaveTimePoint} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold shadow-lg transition-all active:scale-95">确认添加</button></div>
+                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">添加时间节点</h3><button onClick={() => setIsTimeModalOpen(false)}><X size={20}/></button></div>
+                <div className="p-6"><input ref={timeInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none" placeholder="例如: 12:00" value={newTimeName} onChange={(e) => setNewTimeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveTimePoint()} /></div>
+                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsTimeModalOpen(false)} className="px-4 py-2 text-slate-300">取消</button><button onClick={handleSaveTimePoint} className="px-4 py-2 bg-blue-600 text-white rounded font-bold shadow-lg">确认添加</button></div>
             </div>
         </div>
       )}
-
       {isMapModalOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
-                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">新建地图层</h3><button onClick={() => setIsMapModalOpen(false)}><X size={20} className="text-slate-400" /></button></div>
-                <div className="p-6"><input ref={mapInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none focus:ring-2 focus:ring-blue-500" placeholder="例如: 地下室" value={newMapName} onChange={(e) => setNewMapName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddMap()} /></div>
-                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsMapModalOpen(false)} className="px-4 py-2 text-slate-300 text-sm">取消</button><button onClick={handleConfirmAddMap} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold shadow-lg transition-all active:scale-95">创建场景</button></div>
+                <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">新建地图层</h3><button onClick={() => setIsMapModalOpen(false)}><X size={20}/></button></div>
+                <div className="p-6"><input ref={mapInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none" placeholder="例如: 地下室" value={newMapName} onChange={(e) => setNewMapName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddMap()} /></div>
+                <div className="p-4 border-t border-slate-700 flex justify-end gap-2 bg-slate-800/50 rounded-b-xl"><button onClick={() => setIsMapModalOpen(false)} className="px-4 py-2 text-slate-300 text-sm">取消</button><button onClick={handleConfirmAddMap} className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-bold shadow-lg">创建场景</button></div>
             </div>
         </div>
       )}
