@@ -388,8 +388,8 @@ const MapCanvas: React.FC<Props> = ({
                               className="absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-20" 
                               style={{ left: `${p.x}%`, top: `${p.y}%` }}
                             >
-                                <div className="w-7 h-7 bg-amber-500 rotate-45 border-2 border-amber-900/50 shadow-lg flex items-center justify-center relative">
-                                    <div className="-rotate-45 text-amber-900">
+                                <div className="w-7 h-7 bg-amber-500 rounded-md border-2 border-amber-900/50 shadow-lg flex items-center justify-center relative">
+                                    <div className="text-amber-900">
                                         <Package size={14} strokeWidth={3} />
                                     </div>
                                     <div className="absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-amber-900/90 text-[10px] px-1.5 py-0.5 rounded text-amber-100 opacity-0 group-hover:opacity-100 transition-opacity font-bold shadow-xl border border-amber-500/30">
