@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Space, Point, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Character, Clue } from '../types';
-import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2 } from 'lucide-react';
+import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash } from 'lucide-react';
 import { compressImage } from '../utils/imageProcessor';
 
 interface Props {
@@ -56,6 +56,7 @@ const MapCanvas: React.FC<Props> = ({
   const [heightInput, setHeightInput] = useState('650');
   
   const [editForm, setEditForm] = useState<{ name: string; attributes: string[]; note: string } | null>(null);
+  const [customAttrInput, setCustomAttrInput] = useState("");
   const [dragOverMap, setDragOverMap] = useState(false);
   
   // Modals
@@ -240,6 +241,21 @@ const MapCanvas: React.FC<Props> = ({
     onUpdateSpaces(spaces.map(s => s.id === selectedSpaceId ? { ...s, name: editForm.name, attributes: editForm.attributes, note: editForm.note } : s));
     setSelectedSpaceId(null);
     setEditForm(null);
+    setCustomAttrInput("");
+  };
+
+  const handleAddCustomAttr = () => {
+    if (!customAttrInput.trim() || !editForm) return;
+    const trimmed = customAttrInput.trim();
+    if (!editForm.attributes.includes(trimmed)) {
+      setEditForm({ ...editForm, attributes: [...editForm.attributes, trimmed] });
+    }
+    setCustomAttrInput("");
+  };
+
+  const handleRemoveAttr = (attr: string) => {
+    if (!editForm) return;
+    setEditForm({ ...editForm, attributes: editForm.attributes.filter(a => a !== attr) });
   };
 
   const pointsToString = (points: Point[]) => points.map(p => `${p.x},${p.y}`).join(' ');
@@ -402,28 +418,85 @@ const MapCanvas: React.FC<Props> = ({
                 </div>
 
                 {selectedSpaceId && editForm && (
-                    <div className="absolute right-4 top-4 bottom-4 w-72 bg-slate-800/95 backdrop-blur-md border border-slate-600 rounded-lg shadow-2xl z-30 flex flex-col animate-in slide-in-from-right duration-200">
-                        <div className="p-3 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-lg">
-                            <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Edit3 size={14} className="text-blue-400" />区域编辑</h3>
-                            <button onClick={() => { setSelectedSpaceId(null); setEditForm(null); }} className="text-slate-500 hover:text-white"><X size={16} /></button>
+                    <div className="absolute right-4 top-4 bottom-4 w-80 bg-slate-800/95 backdrop-blur-md border border-slate-600 rounded-2xl shadow-2xl z-30 flex flex-col animate-in slide-in-from-right duration-200 overflow-hidden">
+                        <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+                            <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Edit3 size={16} className="text-blue-400" />区域档案编辑</h3>
+                            <button onClick={() => { setSelectedSpaceId(null); setEditForm(null); }} className="text-slate-500 hover:text-white transition-colors"><X size={20} /></button>
                         </div>
-                        <div className="p-3 space-y-3 flex-1 overflow-y-auto">
-                            <div>
-                               <label className="text-xs font-bold text-slate-400 mb-1 block uppercase">名称</label>
-                               <input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-slate-900 border border-slate-600 rounded p-1.5 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none" />
+                        <div className="p-5 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
+                            <div className="space-y-2">
+                               <label className="text-[11px] font-bold text-slate-500 mb-1 block uppercase tracking-wider flex items-center gap-2"><MapPin size={12} /> 区域名称</label>
+                               <input value={editForm.name} onChange={e => setEditForm({...editForm, name: e.target.value})} className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500/50 outline-none transition-all" placeholder="例如: 书房, 案发现场A..." />
                             </div>
-                            <div>
-                               <label className="text-xs font-bold text-slate-400 mb-1 block uppercase">属性</label>
-                               <div className="flex flex-wrap gap-1.5">
+
+                            <div className="space-y-3">
+                               <label className="text-[11px] font-bold text-slate-500 mb-1 block uppercase tracking-wider flex items-center gap-2"><Tag size={12} /> 区域属性与标签</label>
+                               <div className="flex flex-wrap gap-2">
                                  {['密室', '上锁', '危险', '发现点'].map(attr => (
-                                    <button key={attr} onClick={() => setEditForm({ ...editForm, attributes: editForm.attributes.includes(attr) ? editForm.attributes.filter(a => a !== attr) : [...editForm.attributes, attr] })} className={`text-[10px] px-2 py-1 rounded border transition-colors ${editForm.attributes.includes(attr) ? 'bg-blue-600 border-blue-500 text-white' : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'}`}>{attr}</button>
+                                    <button 
+                                      key={attr} 
+                                      onClick={() => setEditForm({ ...editForm, attributes: editForm.attributes.includes(attr) ? editForm.attributes.filter(a => a !== attr) : [...editForm.attributes, attr] })} 
+                                      className={`text-[10px] px-3 py-1.5 rounded-full border transition-all font-bold ${editForm.attributes.includes(attr) ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-700 border-slate-600 text-slate-400 hover:border-slate-500'}`}
+                                    >
+                                      {attr}
+                                    </button>
                                  ))}
                                </div>
+                               
+                               <div className="pt-2">
+                                 <div className="flex gap-2">
+                                    <div className="relative flex-1">
+                                      <Hash className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-600" size={14} />
+                                      <input 
+                                        value={customAttrInput}
+                                        onChange={(e) => setCustomAttrInput(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && handleAddCustomAttr()}
+                                        placeholder="输入自定义标签..."
+                                        className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-300 focus:ring-2 focus:ring-blue-500/50 outline-none"
+                                      />
+                                    </div>
+                                    <button 
+                                      onClick={handleAddCustomAttr}
+                                      className="p-2 bg-slate-700 hover:bg-slate-600 rounded-xl text-slate-300 transition-colors"
+                                    >
+                                      <Plus size={18} />
+                                    </button>
+                                 </div>
+                                 <div className="flex flex-wrap gap-1.5 mt-3">
+                                   {editForm.attributes.filter(a => !['密室', '上锁', '危险', '发现点'].includes(a)).map(attr => (
+                                      <div key={attr} className="flex items-center gap-1.5 bg-slate-900/80 border border-slate-700 px-2.5 py-1 rounded-lg text-[10px] text-blue-300 animate-in fade-in zoom-in-95">
+                                        {attr}
+                                        <button onClick={() => handleRemoveAttr(attr)} className="text-slate-500 hover:text-red-400 transition-colors"><X size={10} /></button>
+                                      </div>
+                                   ))}
+                                 </div>
+                               </div>
+                            </div>
+
+                            <div className="space-y-2">
+                               <label className="text-[11px] font-bold text-slate-500 mb-1 block uppercase tracking-wider flex items-center gap-2"><AlignLeft size={12} /> 现场备注 / 环境描写</label>
+                               <textarea 
+                                 value={editForm.note} 
+                                 onChange={e => setEditForm({...editForm, note: e.target.value})} 
+                                 className="w-full h-32 bg-slate-900 border border-slate-700 rounded-xl p-4 text-xs text-slate-300 leading-relaxed focus:ring-2 focus:ring-blue-500/50 outline-none resize-none transition-all custom-scrollbar font-mono"
+                                 placeholder="在此记录该区域的物理特征、发现的痕迹、或关键的时间节点..."
+                               />
                             </div>
                         </div>
-                        <div className="p-3 border-t border-slate-700 bg-slate-800/50 flex gap-2">
-                            <button onClick={() => { onUpdateSpaces(spaces.filter(s => s.id !== selectedSpaceId)); setSelectedSpaceId(null); }} className="p-2 text-red-400 hover:bg-red-900/20 rounded transition-colors"><Trash2 size={16} /></button>
-                            <button onClick={saveEdit} className="flex-1 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-sm font-bold transition-all shadow-lg">保存修改</button>
+                        <div className="p-4 border-t border-slate-700 bg-slate-900/50 flex gap-3">
+                            <button 
+                              onClick={() => { onUpdateSpaces(spaces.filter(s => s.id !== selectedSpaceId)); setSelectedSpaceId(null); }} 
+                              className="p-3 text-slate-500 hover:text-red-400 hover:bg-red-900/10 rounded-xl transition-all"
+                              title="删除区域"
+                            >
+                              <Trash2 size={20} />
+                            </button>
+                            <button 
+                              onClick={saveEdit} 
+                              className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-black transition-all shadow-xl shadow-blue-900/20 active:scale-95"
+                            >
+                              保存档案
+                            </button>
                         </div>
                     </div>
                 )}
