@@ -5,13 +5,13 @@ export interface Character {
   raw_info?: string;
   role?: string;
   description?: string;
-  note?: string; // User-added detailed remarks
+  note?: string; 
 }
 
 export interface Relationship {
-  source: string; // Character ID
-  target: string; // Character ID
-  relation: string; // e.g., "情侣", "仇敌"
+  source: string; 
+  target: string; 
+  relation: string; 
   value?: number;
 }
 
@@ -23,25 +23,35 @@ export interface RelationshipDef {
 
 export interface CharacterGroup {
   id: string;
-  label: string; // The group name/note
+  label: string; 
   characterIds: string[];
   color: string;
+}
+
+export interface Location {
+  id: string;
+  name: string;
+  note?: string;
+  mapId?: string;   // 关联的地图层 ID
+  spaceId?: string; // 关联的地图具体区域 ID
 }
 
 export interface Clue {
   id: string;
   name: string;
   found_location: string;
+  locationId?: string; // 关联的地点 ID
   status: '未解决' | '已解释' | '误导项';
   description?: string;
-  imageUrl?: string; // Base64 encoded compressed image
+  imageUrl?: string; 
 }
 
 export interface Alibi {
   character_ids: string[];
   time_period: string;
-  timePointId?: string; // 新增：关联的时间线点 ID
-  location: string;
+  timePointId?: string; 
+  location: string;    // 显示文本
+  locationId?: string; // 关联的地点 ID
   status: '确凿' | '模糊' | '无证明';
   details?: string;
 }
@@ -59,25 +69,25 @@ export interface MapDoc {
 
 export interface Space {
   id: string;
-  mapId: string; // Link to specific map
+  mapId: string; 
   name: string;
-  attributes: string[]; // e.g., "上锁", "密室"
-  connected_to: string[]; // Space IDs or Names
-  coordinates?: Point[]; // Array of percentages {x: 0-100, y: 0-100}
-  note?: string; // Annotation for the scene details
+  attributes: string[]; 
+  connected_to: string[]; 
+  coordinates?: Point[]; 
+  note?: string; 
 }
 
 export interface TimePoint {
   id: string;
-  label: string; // e.g. "12:00", "案发时"
+  label: string; 
   order: number;
 }
 
 export interface CharacterPlacement {
   characterId: string;
   mapId: string;
-  x: number; // percentage
-  y: number; // percentage
+  x: number; 
+  y: number; 
 }
 
 export interface ItemPlacement {
@@ -97,6 +107,7 @@ export interface AppState {
   characterGroups: CharacterGroup[];
   clues: Clue[];
   alibis: Alibi[];
+  locations: Location[]; // 新增：地点库
   
   maps: MapDoc[];
   spaces: Space[];
@@ -110,7 +121,6 @@ export interface AppState {
 
   graphLayout: Record<string, { x: number; y: number }>;
   
-  // Persistence Tracking
   lastFileName: string | null;
 }
 
@@ -126,6 +136,7 @@ export const INITIAL_STATE: AppState = {
   characterGroups: [],
   clues: [],
   alibis: [],
+  locations: [],
   
   maps: [{ id: 'default', name: '主场景' }],
   spaces: [],
