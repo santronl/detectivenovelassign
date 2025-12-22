@@ -34,6 +34,7 @@ export interface Clue {
   found_location: string;
   status: '未解决' | '已解释' | '误导项';
   description?: string;
+  imageUrl?: string; // Base64 encoded compressed image
 }
 
 export interface Alibi {

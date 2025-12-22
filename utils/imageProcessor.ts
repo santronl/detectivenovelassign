@@ -1,14 +1,11 @@
 
 /**
- * Compresses an image file to WebP/JPEG with max dimensions.
- * @param file The source File object
- * @param maxWidth Maximum width/height allowed
- * @param quality Compression quality (0 to 1)
+ * 图像压缩工具类 - 内存安全版
  */
 export const compressImage = (
   file: File,
-  maxWidth: number = 1024,
-  quality: number = 0.8
+  maxWidth: number = 600, // 默认证物尺寸降至 600
+  quality: number = 0.5   // 质量降至 0.5 以平衡体积与可辨识度
 ): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -21,7 +18,7 @@ export const compressImage = (
         let width = img.width;
         let height = img.height;
 
-        // Calculate aspect ratio scaling
+        // 计算缩放比例
         if (width > height) {
           if (width > maxWidth) {
             height *= maxWidth / width;
@@ -42,10 +39,18 @@ export const compressImage = (
           return;
         }
 
+        // 使用高质量缩放插值
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, width, height);
 
-        // Prefer webp, fallback to jpeg
+        // 优先使用 webp (体积最小)，其次 jpeg
         const dataUrl = canvas.toDataURL('image/webp', quality) || canvas.toDataURL('image/jpeg', quality);
+        
+        // 显式清理内存
+        canvas.width = 0;
+        canvas.height = 0;
+        
         resolve(dataUrl);
       };
       img.onerror = (err) => reject(err);
