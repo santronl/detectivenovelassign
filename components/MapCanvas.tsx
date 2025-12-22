@@ -472,7 +472,6 @@ const MapCanvas: React.FC<Props> = ({
       if (space) {
         setEditForm({ name: space.name, attributes: space.attributes, note: space.note || "" });
       } else {
-        // If selecting character/clue, we don't show the space edit form by default
         setEditForm(null);
       }
     } else {
@@ -604,7 +603,15 @@ const MapCanvas: React.FC<Props> = ({
                         if (!char) return null;
                         const isSelected = selectedIds.has(p.characterId);
                         return (
-                            <div key={p.characterId} draggable onDragStart={(e) => handleTokenDragStart(e, p.characterId)} onClick={(e) => toggleSelection(e, p.characterId)} className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-10 transition-all ${isSelected ? 'scale-110' : ''}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
+                            <div 
+                              key={p.characterId} 
+                              draggable 
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onDragStart={(e) => handleTokenDragStart(e, p.characterId)} 
+                              onClick={(e) => toggleSelection(e, p.characterId)} 
+                              className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-10 transition-all ${isSelected ? 'scale-110' : ''}`} 
+                              style={{ left: `${p.x}%`, top: `${p.y}%` }}
+                            >
                                 <div className={`w-8 h-8 rounded-full bg-slate-800 border-2 shadow-lg flex items-center justify-center text-xs font-bold text-white relative transition-all ${isSelected ? 'border-blue-400 ring-4 ring-blue-400/20' : 'border-white'}`}>
                                     {char.name.charAt(0)}
                                     <div className={`absolute -bottom-4 left-1/2 -translate-x-1/2 whitespace-nowrap bg-black/75 text-[10px] px-1 rounded transition-opacity shadow-black/50 shadow-md ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>{char.name}</div>
@@ -618,7 +625,16 @@ const MapCanvas: React.FC<Props> = ({
                         if (!clue) return null;
                         const isSelected = selectedIds.has(p.clueId);
                         return (
-                            <div key={p.clueId} draggable onDragStart={(e) => handleItemDragStart(e, p.clueId)} onClick={(e) => toggleSelection(e, p.clueId)} onDoubleClick={(e) => { e.stopPropagation(); onOpenClueModal?.(clue); }} className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-20 transition-all ${isSelected ? 'scale-110' : ''}`} style={{ left: `${p.x}%`, top: `${p.y}%` }}>
+                            <div 
+                              key={p.clueId} 
+                              draggable 
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onDragStart={(e) => handleItemDragStart(e, p.clueId)} 
+                              onClick={(e) => toggleSelection(e, p.clueId)} 
+                              onDoubleClick={(e) => { e.stopPropagation(); onOpenClueModal?.(clue); }} 
+                              className={`absolute transform -translate-x-1/2 -translate-y-1/2 cursor-grab active:cursor-grabbing group z-20 transition-all ${isSelected ? 'scale-110' : ''}`} 
+                              style={{ left: `${p.x}%`, top: `${p.y}%` }}
+                            >
                                 <div className={`w-7 h-7 bg-amber-500 rounded-md border-2 shadow-lg flex items-center justify-center relative transition-all ${isSelected ? 'border-blue-400 ring-4 ring-blue-400/20' : 'border-amber-900/50'}`}>
                                     <div className="text-amber-900"><Package size={14} strokeWidth={3} /></div>
                                     <div className={`absolute -bottom-6 left-1/2 -translate-x-1/2 whitespace-nowrap bg-amber-900/90 text-[10px] px-1.5 py-0.5 rounded text-amber-100 transition-opacity font-bold shadow-xl border border-amber-500/30 ${isSelected ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>{clue.name}</div>
