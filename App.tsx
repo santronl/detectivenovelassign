@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
@@ -38,8 +37,7 @@ import {
   MapPin,
   Camera,
   User,
-  FileArchive,
-  ArrowUpCircle
+  FileArchive
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -92,30 +90,29 @@ const App: React.FC = () => {
   }, [errorMessage]);
 
   // 加载图片 Blob 并在运行时创建 URL
-  // Fix for TypeScript error on line 76: Argument of type 'unknown' is not assignable to parameter of type 'string'.
-  // Using for...of loops which are more reliable for type narrowing in TypeScript compared to forEach callbacks.
+  // Fix: Explicitly check for optional properties and handle type narrowing to avoid 'unknown' assignment errors
   const refreshBlobUrls = async (entities: AppState) => {
     const ids = new Set<string>();
     
     if (entities.characters) {
-      for (const c of entities.characters) {
+      entities.characters.forEach(c => {
         if (typeof c.imageId === 'string') ids.add(c.imageId);
-      }
+      });
     }
     if (entities.clues) {
-      for (const c of entities.clues) {
+      entities.clues.forEach(c => {
         if (typeof c.imageId === 'string') ids.add(c.imageId);
-      }
+      });
     }
     if (entities.locations) {
-      for (const l of entities.locations) {
+      entities.locations.forEach(l => {
         if (typeof l.imageId === 'string') ids.add(l.imageId);
-      }
+      });
     }
     if (entities.maps) {
-      for (const m of entities.maps) {
+      entities.maps.forEach(m => {
         if (typeof m.imageId === 'string') ids.add(m.imageId);
-      }
+      });
     }
 
     const newUrls: Record<string, string> = { ...blobUrls };
@@ -191,64 +188,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 迁移逻辑：将旧版 Base64 转换为 IndexedDB 存储
-  const migrateLegacyData = async (data: any): Promise<AppState> => {
-    const migrateImage = async (base64?: string) => {
-      if (!base64 || !base64.startsWith('data:')) return undefined;
-      try {
-        const response = await fetch(base64);
-        const blob = await response.blob();
-        const id = `img_migrated_${crypto.randomUUID()}`;
-        await saveImageToDB(id, blob);
-        return id;
-      } catch (e) {
-        console.error("Migration failed for image", e);
-        return undefined;
-      }
-    };
-
-    const newState = { ...INITIAL_STATE, ...data };
-
-    // 人物
-    if (newState.characters) {
-      for (const char of newState.characters) {
-        if (char.imageUrl && !char.imageId) {
-          char.imageId = await migrateImage(char.imageUrl);
-          delete char.imageUrl;
-        }
-      }
-    }
-    // 证物
-    if (newState.clues) {
-      for (const clue of newState.clues) {
-        if (clue.imageUrl && !clue.imageId) {
-          clue.imageId = await migrateImage(clue.imageUrl);
-          delete clue.imageUrl;
-        }
-      }
-    }
-    // 地点
-    if (newState.locations) {
-      for (const loc of newState.locations) {
-        if (loc.imageUrl && !loc.imageId) {
-          loc.imageId = await migrateImage(loc.imageUrl);
-          delete loc.imageId;
-        }
-      }
-    }
-    // 地图
-    if (newState.maps) {
-      for (const map of newState.maps) {
-        if (map.imageUrl && !map.imageId) {
-          map.imageId = await migrateImage(map.imageUrl);
-          delete map.imageUrl;
-        }
-      }
-    }
-
-    return newState;
-  };
-
   // 核心：打包导出为 ZIP (.mind)
   const exportArchive = async (isSaveAs: boolean) => {
     const zip = new JSZip();
@@ -300,50 +239,37 @@ const App: React.FC = () => {
     }
   };
 
-  // 核心：智能导入 (支持 .mind 或 .json)
-  const handleImportFile = async (file: File) => {
-    const isZip = file.name.endsWith('.mind') || file.type === 'application/zip';
-    const isJson = file.name.endsWith('.json') || file.type === 'application/json';
-
+  // 核心：从 ZIP (.mind) 导入
+  const importArchive = async (file: File) => {
     try {
-      let parsedData: any;
+      const zip = await JSZip.loadAsync(file);
+      const dataFile = zip.file("data.json");
+      if (!dataFile) throw new Error("无效的存档文件：缺少 data.json");
 
-      if (isZip) {
-        const zip = await JSZip.loadAsync(file);
-        const dataFile = zip.file("data.json");
-        if (!dataFile) throw new Error("无效的存档文件：缺少 data.json");
+      const jsonData = await dataFile.async("string");
+      const parsed = JSON.parse(jsonData);
 
-        const jsonData = await dataFile.async("string");
-        parsedData = JSON.parse(jsonData);
+      // 清理旧图片 (可选，根据业务逻辑决定)
+      // await Promise.all((await getAllImageIdsFromDB()).map(id => deleteImageFromDB(id)));
 
-        const imgFolder = zip.folder("images");
-        if (imgFolder) {
-          const promises: Promise<void>[] = [];
-          imgFolder.forEach((relativePath, fileObj) => {
-            const id = relativePath;
-            promises.push(fileObj.async("blob").then(blob => saveImageToDB(id, blob)));
-          });
-          await Promise.all(promises);
-        }
-      } else if (isJson) {
-        const text = await file.text();
-        parsedData = JSON.parse(text);
-        setStatusMessage("检测到旧版 JSON，正在进行格式升级...");
-      } else {
-        throw new Error("不支持的文件类型");
+      // 恢复图片
+      const imgFolder = zip.folder("images");
+      if (imgFolder) {
+        const promises: Promise<void>[] = [];
+        imgFolder.forEach((relativePath, fileObj) => {
+          const id = relativePath;
+          promises.push(fileObj.async("blob").then(blob => saveImageToDB(id, blob)));
+        });
+        await Promise.all(promises);
       }
 
-      // 执行迁移逻辑
-      const migratedState = await migrateLegacyData(parsedData);
-      
       setFileHandle(null);
-      setState({ ...migratedState, lastFileName: file.name.replace(/\.json$/, '.mind') });
-      await refreshBlobUrls(migratedState);
-      
-      setStatusMessage(isJson ? "旧版档案已成功迁移至新系统" : "档案加载成功");
+      setState({ ...INITIAL_STATE, ...parsed, lastFileName: file.name });
+      await refreshBlobUrls(parsed);
+      setStatusMessage("档案解压并加载成功");
     } catch (err) {
       console.error(err);
-      setErrorMessage("导入失败：文件损坏或格式不正确");
+      setErrorMessage("解析存档包失败");
     }
   };
 
@@ -352,12 +278,12 @@ const App: React.FC = () => {
       try {
         const [handle] = await (window as any).showOpenFilePicker({
           types: [{
-            description: 'MysteryMind Archive',
-            accept: { 'application/zip': ['.mind'], 'application/json': ['.json'] },
+            description: 'MysteryMind Bundle',
+            accept: { 'application/zip': ['.mind'] },
           }],
         });
         const file = await handle.getFile();
-        await handleImportFile(file);
+        await importArchive(file);
         setFileHandle(handle);
       } catch (err) {
         if (err.name !== 'AbortError') setErrorMessage("无法打开文件");
@@ -367,7 +293,7 @@ const App: React.FC = () => {
     }
   };
 
-  // 其余 Handle 逻辑保持不变...
+  // Location Handlers
   const handleAddLocation = (loc: Location) => setState(p => ({ ...p, locations: [...p.locations, loc] }));
   const handleUpdateLocation = (loc: Location) => setState(p => ({ ...p, locations: p.locations.map(l => l.id === loc.id ? loc : l) }));
   const handleDeleteLocation = (id: string) => setState(p => ({ 
@@ -548,15 +474,14 @@ const App: React.FC = () => {
               <div className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${fileHandle ? 'bg-green-900/20 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
                  {fileHandle ? <Link2 size={12}/> : <Link2Off size={12}/>} {fileHandle ? '已关联本地文件' : isIframe ? '沙盒环境受限' : '未关联文件'}
               </div>
-              <input type="file" ref={fileImportRef} onChange={(e) => e.target.files?.[0] && handleImportFile(e.target.files[0])} accept=".mind,.json" className="hidden" />
-              <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">导入存档</span></button>
+              <input type="file" ref={fileImportRef} onChange={(e) => e.target.files?.[0] && importArchive(e.target.files[0])} accept=".mind" className="hidden" />
+              <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打开存档</span></button>
               <button onClick={() => setShowExportModal(true)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><Save size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打包导出</span></button>
             </div>
           </div>
         </div>
       </header>
 
-      {/* 侧边栏与主区域内容保持不变... */}
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6">
           <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg">
@@ -615,7 +540,7 @@ const App: React.FC = () => {
                           <div className="flex flex-col truncate min-w-0"><span className="text-sm font-bold text-amber-200 truncate">{clue.name}</span>{clue.description && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{clue.description}</span>}</div>
                         </div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14} /></button><button onClick={(e) => { e.stopPropagation(); setClueToDeleteId(clue.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14} /></button></div>
-                    </div>
+                      </div>
                     );
                   })}
                 </div>
@@ -685,7 +610,6 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {/* 其余 Modal 结构保持不变... */}
       {characterToDelete && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"><div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm animate-in zoom-in-95 duration-200 overflow-hidden"><div className="p-6 text-center"><div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div><h3 className="text-xl font-bold text-white mb-2">确认删除角色?</h3><div className="flex gap-3"><button onClick={() => setCharacterToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all">取消</button><button onClick={handleConfirmDeleteCharacter} className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95">确认删除</button></div></div></div></div>}
       
       {editingCharacter && (
