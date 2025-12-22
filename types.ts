@@ -28,12 +28,19 @@ export interface CharacterGroup {
   color: string;
 }
 
+export interface LocationItem {
+  id: string;
+  name: string;
+  note?: string;
+}
+
 export interface Location {
   id: string;
   name: string;
   note?: string;
   mapId?: string;   // 关联的地图层 ID
   spaceId?: string; // 关联的地图具体区域 ID
+  items?: LocationItem[]; // 新增：室内物品清单
 }
 
 export interface Clue {
@@ -107,7 +114,7 @@ export interface AppState {
   characterGroups: CharacterGroup[];
   clues: Clue[];
   alibis: Alibi[];
-  locations: Location[]; // 新增：地点库
+  locations: Location[]; 
   
   maps: MapDoc[];
   spaces: Space[];
