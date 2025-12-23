@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Space, Point, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Character, Clue, Alibi } from '../types';
-import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser, ShieldCheck } from 'lucide-react';
+import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser, ShieldCheck, Users } from 'lucide-react';
 import { compressImage } from '../utils/imageProcessor';
 
 interface Props {
@@ -15,7 +15,7 @@ interface Props {
   timelineData: Record<string, CharacterPlacement[]>; 
   itemTimelineData: Record<string, ItemPlacement[]>;
   characters: Character[];
-  blobUrls: Record<string, string>; // 新增
+  blobUrls: Record<string, string>;
 
   onUpdateMaps: (maps: MapDoc[]) => void;
   onDeleteMap: (id: string) => void;
@@ -28,7 +28,7 @@ interface Props {
   onUpdateItemPlacements: (timeId: string, placements: ItemPlacement[]) => void;
   onAddClue: (clue: Clue) => void; 
   onOpenClueModal?: (clue: Clue) => void;
-  onImageSave: (entityId: string, blob: Blob) => Promise<string>; // 新增
+  onImageSave: (entityId: string, blob: Blob) => Promise<string>;
 }
 
 const generateId = () => {
@@ -74,7 +74,6 @@ const MapCanvas: React.FC<Props> = ({
   const [timeToDelete, setTimeToDelete] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
   
-  // 时间点编辑状态
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
   const [tempTimeLabel, setTempTimeLabel] = useState("");
 
@@ -697,7 +696,7 @@ const MapCanvas: React.FC<Props> = ({
           )}
       </div>
 
-      <div className="shrink-0 h-28 bg-slate-800 rounded-lg border border-slate-700 flex flex-col shadow-inner">
+      <div className="shrink-0 h-40 bg-slate-800 rounded-lg border border-slate-700 flex flex-col shadow-inner">
         <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
             <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线点 (Timeline)</h3>
             <div className="flex items-center gap-2">
@@ -709,8 +708,26 @@ const MapCanvas: React.FC<Props> = ({
             {timePoints.map((tp) => {
                 const linkedAlibis = alibis.filter(a => a.timePointId === tp.id);
                 return (
-                    <div key={tp.id} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 w-44 h-full p-2 rounded cursor-pointer border transition-all relative flex flex-col justify-between ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-lg' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
-                        <div className="flex justify-between items-start">
+                    <div key={tp.id} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 min-w-[14rem] h-full p-3 rounded cursor-pointer border transition-all relative flex flex-row items-stretch ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-lg' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
+                        {/* 操作按钮 - 绝对定位至右上角 */}
+                        <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                               {linkedAlibis.length > 0 && (
+                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} title="查看不在场证明汇总" className="text-purple-400 hover:scale-110 p-0.5">
+                                   <ShieldCheck size={11}/>
+                                 </button>
+                               )}
+                               <button 
+                                   onClick={(e) => { e.stopPropagation(); setEditingTimeId(tp.id); setTempTimeLabel(tp.label); }} 
+                                   title="编辑名称"
+                                   className="text-slate-500 hover:text-blue-400 p-0.5"
+                               >
+                                   <Edit3 size={11}/>
+                               </button>
+                               {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} title="删除时间点" className="text-slate-600 hover:text-red-400 p-0.5"><X size={11} /></button>}
+                        </div>
+
+                        {/* 左侧：名称内容 */}
+                        <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden pr-2">
                             {editingTimeId === tp.id ? (
                                 <input 
                                     autoFocus
@@ -722,37 +739,39 @@ const MapCanvas: React.FC<Props> = ({
                                         if (e.key === 'Escape') setEditingTimeId(null);
                                     }}
                                     onClick={(e) => e.stopPropagation()}
-                                    className="bg-slate-900 border border-blue-500 rounded px-1.5 py-0.5 text-sm text-white w-28 outline-none"
+                                    className="bg-slate-900 border border-blue-500 rounded px-1.5 py-1 text-xs text-white w-full outline-none"
                                 />
                             ) : (
-                                <span 
+                                <div 
                                     onDoubleClick={(e) => { e.stopPropagation(); setEditingTimeId(tp.id); setTempTimeLabel(tp.label); }}
-                                    className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}
+                                    className="flex flex-col min-w-0"
                                 >
-                                    {tp.label}
-                                </span>
+                                    <span className={`text-sm font-bold leading-tight ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>
+                                        {tp.label.length > 7 ? tp.label.slice(0, 7) : tp.label}
+                                    </span>
+                                    {tp.label.length > 7 && (
+                                        <span className={`text-[10px] font-medium mt-1 opacity-60 break-all leading-[1.2] ${currentTimeId === tp.id ? 'text-orange-200/80' : 'text-slate-500'}`}>
+                                            {tp.label.slice(7)}
+                                        </span>
+                                    )}
+                                </div>
                             )}
-                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                               {linkedAlibis.length > 0 && (
-                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} title="查看不在场证明汇总" className="text-purple-400 hover:scale-110">
-                                   <ShieldCheck size={12}/>
-                                 </button>
-                               )}
-                               <button 
-                                   onClick={(e) => { e.stopPropagation(); setEditingTimeId(tp.id); setTempTimeLabel(tp.label); }} 
-                                   title="编辑名称"
-                                   className="text-slate-400 hover:text-blue-400"
-                               >
-                                   <Edit3 size={12}/>
-                               </button>
-                               {clipboard.length > 0 && <button onClick={(e) => { e.stopPropagation(); onSelectTime(tp.id); handlePaste(); }} title="粘贴到此点" className="text-green-400 hover:scale-110"><Clipboard size={12}/></button>}
-                               {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} title="删除时间点" className="text-slate-600 hover:text-red-400"><X size={12} /></button>}
-                            </div>
                         </div>
-                        <div className="flex items-end justify-between mt-1">
-                             <div className="text-[10px] text-slate-500 tracking-tighter uppercase font-mono">{timelineData[tp.id]?.length || 0}👤 | {itemTimelineData[tp.id]?.length || 0}📦</div>
-                             {currentTimeId === tp.id && <div className="w-full h-0.5 bg-orange-500 absolute bottom-0 left-0 right-0 rounded-b"></div>}
+
+                        {/* 右侧：统计信息 - 纵向排列 */}
+                        <div className="shrink-0 flex flex-col justify-center gap-1.5 pl-3 border-l border-white/5">
+                             <div className="flex items-center gap-1.5 px-2 py-1 bg-black/30 rounded text-[9px] text-slate-400 font-mono shadow-inner border border-white/5">
+                                 <Users size={10} className="text-blue-500/70" />
+                                 <span>{timelineData[tp.id]?.length || 0}</span>
+                             </div>
+                             <div className="flex items-center gap-1.5 px-2 py-1 bg-black/30 rounded text-[9px] text-slate-400 font-mono shadow-inner border border-white/5">
+                                 <Package size={10} className="text-amber-500/70" />
+                                 <span>{itemTimelineData[tp.id]?.length || 0}</span>
+                             </div>
                         </div>
+
+                        {/* 激活底线 */}
+                        {currentTimeId === tp.id && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500 rounded-b"></div>}
                     </div>
                 );
             })}
