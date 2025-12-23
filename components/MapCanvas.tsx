@@ -73,6 +73,11 @@ const MapCanvas: React.FC<Props> = ({
   const [newTimeName, setNewTimeName] = useState("");
   const [timeToDelete, setTimeToDelete] = useState<string | null>(null);
   const timeInputRef = useRef<HTMLInputElement>(null);
+  
+  // 时间点编辑状态
+  const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
+  const [tempTimeLabel, setTempTimeLabel] = useState("");
+
   const [isMapModalOpen, setIsMapModalOpen] = useState(false);
   const [newMapName, setNewMapName] = useState("");
   const [mapToDelete, setMapToDelete] = useState<MapDoc | null>(null);
@@ -188,6 +193,15 @@ const MapCanvas: React.FC<Props> = ({
       onUpdateTimePoints(newPoints);
       if (currentTimeId === timeToDelete) onSelectTime(newPoints[0].id);
       setTimeToDelete(null);
+  };
+
+  const handleUpdateCurrentTimeLabel = () => {
+      if (editingTimeId && tempTimeLabel.trim()) {
+          onUpdateTimePoints(timePoints.map(tp => 
+              tp.id === editingTimeId ? { ...tp, label: tempTimeLabel.trim() } : tp
+          ));
+      }
+      setEditingTimeId(null);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -697,15 +711,42 @@ const MapCanvas: React.FC<Props> = ({
                 return (
                     <div key={tp.id} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 w-44 h-full p-2 rounded cursor-pointer border transition-all relative flex flex-col justify-between ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-lg' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
                         <div className="flex justify-between items-start">
-                            <span className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}>{tp.label}</span>
+                            {editingTimeId === tp.id ? (
+                                <input 
+                                    autoFocus
+                                    value={tempTimeLabel}
+                                    onChange={(e) => setTempTimeLabel(e.target.value)}
+                                    onBlur={handleUpdateCurrentTimeLabel}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') handleUpdateCurrentTimeLabel();
+                                        if (e.key === 'Escape') setEditingTimeId(null);
+                                    }}
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="bg-slate-900 border border-blue-500 rounded px-1.5 py-0.5 text-sm text-white w-28 outline-none"
+                                />
+                            ) : (
+                                <span 
+                                    onDoubleClick={(e) => { e.stopPropagation(); setEditingTimeId(tp.id); setTempTimeLabel(tp.label); }}
+                                    className={`text-sm font-bold truncate ${currentTimeId === tp.id ? 'text-orange-100' : 'text-slate-300'}`}
+                                >
+                                    {tp.label}
+                                </span>
+                            )}
                             <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
                                {linkedAlibis.length > 0 && (
-                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} className="text-purple-400 hover:scale-110">
+                                 <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} title="查看不在场证明汇总" className="text-purple-400 hover:scale-110">
                                    <ShieldCheck size={12}/>
                                  </button>
                                )}
-                               {clipboard.length > 0 && <button onClick={(e) => { e.stopPropagation(); onSelectTime(tp.id); handlePaste(); }} className="text-green-400 hover:scale-110"><Clipboard size={12}/></button>}
-                               {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} className="text-slate-600 hover:text-red-400"><X size={12} /></button>}
+                               <button 
+                                   onClick={(e) => { e.stopPropagation(); setEditingTimeId(tp.id); setTempTimeLabel(tp.label); }} 
+                                   title="编辑名称"
+                                   className="text-slate-400 hover:text-blue-400"
+                               >
+                                   <Edit3 size={12}/>
+                               </button>
+                               {clipboard.length > 0 && <button onClick={(e) => { e.stopPropagation(); onSelectTime(tp.id); handlePaste(); }} title="粘贴到此点" className="text-green-400 hover:scale-110"><Clipboard size={12}/></button>}
+                               {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} title="删除时间点" className="text-slate-600 hover:text-red-400"><X size={12} /></button>}
                             </div>
                         </div>
                         <div className="flex items-end justify-between mt-1">

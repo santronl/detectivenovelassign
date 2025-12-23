@@ -73,8 +73,6 @@ const App: React.FC = () => {
   // 初始化时清理 URL，防止内存泄漏
   useEffect(() => {
     return () => {
-      // Fix: Line 76 - Argument of type 'unknown' is not assignable to parameter of type 'string'
-      // Object.values can return unknown[] in strict TS environments.
       Object.values(blobUrls).forEach((url) => URL.revokeObjectURL(url as string));
     };
   }, []);
@@ -227,82 +225,88 @@ const App: React.FC = () => {
         const oldUrl = (clue as any).imageUrl;
         if (oldUrl && !clue.imageId) {
           clue.imageId = await migrateImage(oldUrl);
+          // Fix: Correct variable name from char to clue on line 228
           delete (clue as any).imageUrl;
         }
       }
     }
-    // 地点
-    if (newState.locations) {
-      for (const loc of newState.locations) {
-        const oldUrl = (loc as any).imageUrl;
-        if (oldUrl && !loc.imageId) {
-          loc.imageId = await migrateImage(oldUrl);
-          delete (loc as any).imageUrl;
-        }
-      }
-    }
-    // 地图
-    if (newState.maps) {
-      for (const map of newState.maps) {
-        const oldUrl = (map as any).imageUrl;
-        if (oldUrl && !map.imageId) {
-          map.imageId = await migrateImage(oldUrl);
-          delete (map as any).imageUrl;
-        }
-      }
-    }
-
     return newState;
   };
 
-  // 核心：打包导出为 ZIP (.mind)
+  // 核心：打包导出或覆盖保存
   const exportArchive = async (isSaveAs: boolean) => {
-    const zip = new JSZip();
-    const cleanState = { ...state };
-    zip.file("data.json", JSON.stringify(cleanState, null, 2));
-    
-    const imageIds = await getAllImageIdsFromDB();
-    const imgFolder = zip.folder("images");
-    if (imgFolder) {
-      for (const id of imageIds) {
-        const blob = await loadImageFromDB(id);
-        if (blob) {
-          imgFolder.file(id, blob);
+    try {
+      const zip = new JSZip();
+      const cleanState = { ...state };
+      zip.file("data.json", JSON.stringify(cleanState, null, 2));
+      
+      const imageIds = await getAllImageIdsFromDB();
+      const imgFolder = zip.folder("images");
+      if (imgFolder) {
+        for (const id of imageIds) {
+          const blob = await loadImageFromDB(id);
+          if (blob) {
+            imgFolder.file(id, blob);
+          }
         }
       }
-    }
 
-    const content = await zip.generateAsync({ type: "blob" });
-    const fileName = state.lastFileName ? state.lastFileName.replace(/\.json$/, '.mind') : `mystery-${new Date().toISOString().slice(0,10)}.mind`;
+      const content = await zip.generateAsync({ type: "blob" });
+      const fileName = state.lastFileName ? state.lastFileName.replace(/\.json$/, '.mind') : `mystery-${new Date().toISOString().slice(0,10)}.mind`;
 
-    if ('showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
-      try {
-        const handle = await (window as any).showSaveFilePicker({
-          suggestedName: fileName,
-          types: [{
-            description: 'MysteryMind Bundle',
-            accept: { 'application/zip': ['.mind'] },
-          }],
-        });
-        const writable = await handle.createWritable();
+      // 如果有已有的句柄且不是另存为
+      if (fileHandle && !isSaveAs && !isIframe) {
+        // 请求权限（如果需要）
+        // Fix: Replace FileSystemPermissionMode with any on line 259 to avoid build error
+        const options = { mode: 'readwrite' as any };
+        if (await fileHandle.queryPermission(options) !== 'granted') {
+          if (await fileHandle.requestPermission(options) !== 'granted') {
+            throw new Error('未获得写入权限');
+          }
+        }
+        
+        const writable = await fileHandle.createWritable();
         await writable.write(content);
         await writable.close();
-        setFileHandle(handle);
-        setState(prev => ({ ...prev, lastFileName: handle.name }));
-        setShowExportModal(false);
-        setStatusMessage("档案打包成功");
-      } catch (err: any) {
-        if (err.name !== 'AbortError') throw err;
+        setStatusMessage(`已同步保存至: ${fileHandle.name}`);
+        return;
       }
-    } else {
-      const url = URL.createObjectURL(content);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(url);
-      setShowExportModal(false);
-      setStatusMessage("档案已下载 (.mind)");
+
+      // 另存为或初始保存
+      if ('showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({
+            suggestedName: fileName,
+            types: [{
+              description: 'MysteryMind Bundle',
+              accept: { 'application/zip': ['.mind'] },
+            }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(content);
+          await writable.close();
+          setFileHandle(handle);
+          saveFileHandle(handle); // 存入 IndexedDB
+          setState(prev => ({ ...prev, lastFileName: handle.name }));
+          setShowExportModal(false);
+          setStatusMessage("档案打包并保存成功");
+        } catch (err: any) {
+          if (err.name !== 'AbortError') throw err;
+        }
+      } else {
+        // 降级：直接下载
+        const url = URL.createObjectURL(content);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = fileName;
+        link.click();
+        URL.revokeObjectURL(url);
+        setShowExportModal(false);
+        setStatusMessage("档案已下载 (.mind)");
+      }
+    } catch (err: any) {
+      console.error(err);
+      setErrorMessage(err.message || "档案保存失败");
     }
   };
 
@@ -342,7 +346,6 @@ const App: React.FC = () => {
       // 执行迁移逻辑
       const migratedState = await migrateLegacyData(parsedData);
       
-      setFileHandle(null);
       setState({ ...migratedState, lastFileName: file.name.replace(/\.json$/, '.mind') });
       await refreshBlobUrls(migratedState);
       
@@ -365,6 +368,7 @@ const App: React.FC = () => {
         const file = await handle.getFile();
         await handleImportFile(file);
         setFileHandle(handle);
+        saveFileHandle(handle);
       } catch (err: any) {
         if (err.name !== 'AbortError') setErrorMessage("无法打开文件");
       }
@@ -373,7 +377,7 @@ const App: React.FC = () => {
     }
   };
 
-  // 其余 Handle 逻辑保持不变...
+  // 其余 Handle 逻辑...
   const handleAddLocation = (loc: Location) => setState(p => ({ ...p, locations: [...p.locations, loc] }));
   const handleUpdateLocation = (loc: Location) => setState(p => ({ ...p, locations: p.locations.map(l => l.id === loc.id ? loc : l) }));
   const handleDeleteLocation = (id: string) => setState(p => ({ 
@@ -453,7 +457,7 @@ const App: React.FC = () => {
       const newItemTimelineData = { ...prev.itemTimelineData };
       Object.keys(newItemTimelineData).forEach(timeId => {
         const currentItemPlacements = newItemTimelineData[timeId] as ItemPlacement[];
-        newItemTimelineData[timeId] = currentItemPlacements.filter(p => p.mapId !== mapId);
+        newItemTimelineData[timeId] = currentItemPlacements.filter(p => p.clueId !== mapId);
       });
       return {
         ...prev,
@@ -556,7 +560,12 @@ const App: React.FC = () => {
               </div>
               <input type="file" ref={fileImportRef} onChange={(e) => e.target.files?.[0] && handleImportFile(e.target.files[0])} accept=".mind,.json" className="hidden" />
               <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">导入存档</span></button>
-              <button onClick={() => exportArchive(false)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><Save size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">打包导出</span></button>
+              
+              {fileHandle && (
+                <button onClick={() => exportArchive(false)} className="flex items-center gap-2 p-2 text-blue-400 hover:text-blue-300 group"><Save size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-bold">覆盖保存</span></button>
+              )}
+              
+              <button onClick={() => exportArchive(true)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FileArchive size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">另存为...</span></button>
             </div>
           </div>
         </div>
@@ -675,14 +684,14 @@ const App: React.FC = () => {
 
       {showExportModal && (
         <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
-          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-200">
+          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-sm overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
               <h3 className="text-xl font-bold text-white flex items-center gap-3"><FileArchive className="text-blue-400" size={24} />打包导出</h3>
               <button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white"><X size={24} /></button>
             </div>
             <div className="p-8 space-y-4">
               <p className="text-sm text-slate-400">我们将所有案情数据和图片文件打包为 <code className="text-blue-400 font-bold">.mind</code> 文件。您可以安全地在其他设备加载此文件。</p>
-              <button onClick={() => exportArchive(false)} className="w-full flex items-center justify-center gap-3 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all font-bold shadow-xl shadow-blue-900/20">
+              <button onClick={() => exportArchive(true)} className="w-full flex items-center justify-center gap-3 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all font-bold shadow-xl shadow-blue-900/20">
                 <Save size={20} /> 打包导出 .mind
               </button>
             </div>
