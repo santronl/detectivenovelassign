@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Space, Point, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Character, Clue, Alibi } from '../types';
-import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser, ShieldCheck, Users } from 'lucide-react';
+import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser, ShieldCheck, Users, GripHorizontal } from 'lucide-react';
 import { compressImage } from '../utils/imageProcessor';
 
 interface Props {
@@ -83,6 +83,8 @@ const MapCanvas: React.FC<Props> = ({
   const mapInputRef = useRef<HTMLInputElement>(null);
   const [editingMapId, setEditingMapId] = useState<string | null>(null);
   const [tempMapName, setTempMapName] = useState("");
+  const [draggedMapIndex, setDraggedMapIndex] = useState<number | null>(null);
+  
   const wrapperRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -246,6 +248,32 @@ const MapCanvas: React.FC<Props> = ({
       }
       e.dataTransfer.setData("application/react-dnd-clue-id", clueId);
       e.stopPropagation();
+  };
+
+  // --- 场景选项卡拖拽排序逻辑 ---
+  const handleMapDragStart = (index: number) => {
+    if (editingMapId) return; // 编辑模式下禁止拖拽
+    setDraggedMapIndex(index);
+  };
+
+  const handleMapDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedMapIndex === null || draggedMapIndex === index) return;
+  };
+
+  const handleMapDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (draggedMapIndex === null || draggedMapIndex === targetIndex) {
+      setDraggedMapIndex(null);
+      return;
+    }
+
+    const updatedMaps = [...maps];
+    const [draggedMap] = updatedMaps.splice(draggedMapIndex, 1);
+    updatedMaps.splice(targetIndex, 0, draggedMap);
+    
+    onUpdateMaps(updatedMaps);
+    setDraggedMapIndex(null);
   };
 
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
@@ -485,7 +513,7 @@ const MapCanvas: React.FC<Props> = ({
     <div style={{ height: `${canvasHeight}px` }} className="flex flex-col gap-2 relative transition-all duration-300 select-none">
       <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 shrink-0">
         <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[40%]">
-            {maps.map(m => (
+            {maps.map((m, idx) => (
                 editingMapId === m.id ? (
                     <input 
                         key={m.id} autoFocus value={tempMapName} onChange={(e) => setTempMapName(e.target.value)}
@@ -494,12 +522,20 @@ const MapCanvas: React.FC<Props> = ({
                         className="w-32 px-2 py-1.5 rounded text-sm bg-slate-900 text-white border border-blue-500 outline-none"
                     />
                 ) : (
-                    <div key={m.id} className="relative group/tab flex shrink-0">
+                    <div 
+                      key={m.id} 
+                      className={`relative group/tab flex shrink-0 transition-all ${draggedMapIndex === idx ? 'opacity-30 scale-95' : 'opacity-100'}`}
+                      draggable={!editingMapId}
+                      onDragStart={() => handleMapDragStart(idx)}
+                      onDragOver={(e) => handleMapDragOver(e, idx)}
+                      onDrop={(e) => handleMapDrop(e, idx)}
+                    >
                         <button
                             onClick={() => onSelectMap(m.id)}
                             onDoubleClick={() => { setEditingMapId(m.id); setTempMapName(m.name); }}
                             className={`px-4 py-1.5 rounded text-sm transition-all flex items-center gap-2 ${currentMapId === m.id ? 'bg-blue-600 text-white pr-7' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
                         >
+                            <GripHorizontal size={12} className="text-slate-400 group-hover/tab:text-white transition-colors" />
                             {m.name}
                         </button>
                         {maps.length > 1 && (
