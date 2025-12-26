@@ -67,14 +67,23 @@ export interface Alibi {
   details?: string;
 }
 
-// --- 时间线片段数据定义 ---
+// --- 时间线增强定义 ---
 export interface TimelineSegment {
   id: string;
   characterId: string;
-  startSlot: number; // 起始格索引
-  endSlot: number;   // 结束格索引
+  startSlot: number; 
+  endSlot: number;   
   locationName: string;
-  timeLabel?: string; // 选填的时间显示文字
+  timeLabel?: string; 
+  color?: string;
+  relatedTimePointId?: string; // 关联到空间轨迹的时刻
+}
+
+export interface TimePeriodLabel {
+  id: string;
+  label: string;
+  startSlot: number;
+  endSlot: number;
   color?: string;
 }
 
@@ -139,15 +148,15 @@ export interface AppState {
   
   // 时间线新字段
   timelineSegments: TimelineSegment[];
-  timelineActiveCharIds: string[]; // 时间线图谱显示的活动角色
-  timelineSlotCount: number;      // 总格子数
+  timelinePeriods: TimePeriodLabel[]; // 时间段备注
+  timelineActiveCharIds: string[];    // 选中的角色
+  timelineCharOrder: string[];        // 角色显示顺序
+  timelineSlotCount: number;      
 
   currentMapId: string;
   currentTimeId: string;
   graphActiveCharacterIds: string[];
-
   graphLayout: Record<string, { x: number; y: number }>;
-  
   lastFileName: string | null;
 }
 
@@ -172,8 +181,10 @@ export const INITIAL_STATE: AppState = {
   itemTimelineData: {}, 
 
   timelineSegments: [],
+  timelinePeriods: [],
   timelineActiveCharIds: [],
-  timelineSlotCount: 24, // 默认24格
+  timelineCharOrder: [],
+  timelineSlotCount: 24, 
   
   currentMapId: 'default',
   currentTimeId: 't1',

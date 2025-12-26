@@ -1,38 +1,63 @@
 
 import React, { useState } from 'react';
-import { Character, TimelineSegment, Location } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Edit2, Calendar } from 'lucide-react';
+import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link } from 'lucide-react';
 
 interface Props {
   characters: Character[];
   segments: TimelineSegment[];
+  periods: TimePeriodLabel[];
   activeCharIds: string[];
+  charOrder: string[];
   slotCount: number;
   locations: Location[];
+  timePoints: TimePoint[];
   onAddSegment: (seg: TimelineSegment) => void;
   onRemoveSegment: (id: string) => void;
   onUpdateActiveChars: (ids: string[]) => void;
   onUpdateSlotCount: (count: number) => void;
+  onUpdatePeriods: (periods: TimePeriodLabel[]) => void;
+  onUpdateCharOrder: (order: string[]) => void;
+  onInsertSlot: (index: number) => void;
 }
 
-const SLOT_HEIGHT = 50; // 每格高度 50px
+const SLOT_HEIGHT = 64; 
+const LEFT_SECTION_WIDTH = 140; // 备注 + 刻度 的总宽度
+const CHAR_COLUMN_WIDTH = 220;
 const COLORS = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f43f5e'];
 
 const TimelineVertical: React.FC<Props> = ({
   characters,
   segments,
+  periods = [],
   activeCharIds,
+  charOrder = [],
   slotCount,
   locations,
+  timePoints,
   onAddSegment,
   onRemoveSegment,
   onUpdateActiveChars,
-  onUpdateSlotCount
+  onUpdateSlotCount,
+  onUpdatePeriods,
+  onUpdateCharOrder,
+  onInsertSlot
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSeg, setEditingSeg] = useState<Partial<TimelineSegment> | null>(null);
+  const [draggedCharIndex, setDraggedCharIndex] = useState<number | null>(null);
+  
+  const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
+  const [newPeriodLabel, setNewPeriodLabel] = useState("");
 
-  const activeCharacters = characters.filter(c => activeCharIds.includes(c.id));
+  // 排序逻辑：根据 charOrder 排序已选中的角色，没在 order 里的排后面
+  const sortedIds = [
+    ...charOrder.filter(id => activeCharIds.includes(id)),
+    ...activeCharIds.filter(id => !charOrder.includes(id))
+  ];
+  
+  const activeCharacters = sortedIds.map(id => characters.find(c => c.id === id)).filter(Boolean) as Character[];
 
   const handleOpenAdd = (charId?: string, slotIdx?: number) => {
     setEditingSeg({
@@ -47,32 +72,77 @@ const TimelineVertical: React.FC<Props> = ({
     setIsModalOpen(true);
   };
 
-  const handleSave = () => {
+  const handleSaveSegment = () => {
     if (editingSeg && editingSeg.characterId && editingSeg.locationName) {
       onAddSegment(editingSeg as TimelineSegment);
+      if (editingSeg.timeLabel) {
+        const hasExisting = periods.some(p => p.startSlot === editingSeg.startSlot && p.endSlot === editingSeg.endSlot);
+        if (!hasExisting) {
+            onUpdatePeriods([...periods, {
+                id: crypto.randomUUID(),
+                label: editingSeg.timeLabel,
+                startSlot: editingSeg.startSlot!,
+                endSlot: editingSeg.endSlot!,
+                color: editingSeg.color
+            }]);
+        }
+      }
       setIsModalOpen(false);
       setEditingSeg(null);
     }
   };
 
+  const handleSlotClick = (idx: number) => {
+    if (selectionStart === null) {
+        setSelectionStart(idx);
+    } else {
+        const start = Math.min(selectionStart, idx);
+        const end = Math.max(selectionStart, idx) + 1;
+        setSelectionStart(null);
+        setEditingSeg({ startSlot: start, endSlot: end } as any);
+        setIsPeriodModalOpen(true);
+    }
+  };
+
+  const handleSavePeriod = () => {
+      if (newPeriodLabel.trim() && editingSeg) {
+          onUpdatePeriods([...periods, {
+              id: crypto.randomUUID(),
+              label: newPeriodLabel.trim(),
+              startSlot: editingSeg.startSlot!,
+              endSlot: editingSeg.endSlot!,
+              color: COLORS[Math.floor(Math.random() * COLORS.length)]
+          }]);
+          setNewPeriodLabel("");
+          setIsPeriodModalOpen(false);
+          setEditingSeg(null);
+      }
+  };
+
   return (
-    <div className="flex flex-col h-full space-y-4">
-      {/* 工具栏 */}
-      <div className="flex items-center justify-between bg-slate-800/50 p-4 rounded-xl border border-slate-700 shadow-lg">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-500 uppercase">总格数:</span>
-            <input 
-              type="number" 
-              className="w-16 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm text-blue-400 font-mono focus:ring-1 focus:ring-blue-500 outline-none"
-              value={slotCount}
-              onChange={(e) => onUpdateSlotCount(Math.max(1, parseInt(e.target.value) || 1))}
-            />
+    <div className="flex flex-col h-[750px] space-y-4">
+      {/* 顶部工具栏 */}
+      <div className="flex items-center justify-between bg-slate-800/80 p-4 rounded-xl border border-slate-700 shadow-xl backdrop-blur shrink-0">
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">轴格配置</span>
+            <div className="flex items-center bg-slate-900 rounded-lg p-1 border border-slate-700">
+                <input 
+                    type="number" 
+                    className="w-12 bg-transparent text-center text-blue-400 font-mono text-sm outline-none"
+                    value={slotCount}
+                    onChange={(e) => onUpdateSlotCount(Math.max(1, parseInt(e.target.value) || 1))}
+                />
+                <div className="flex flex-col gap-0.5 ml-1">
+                    <button onClick={() => onUpdateSlotCount(slotCount+1)} className="text-slate-500 hover:text-white"><ChevronUp size={12}/></button>
+                    <button onClick={() => onUpdateSlotCount(Math.max(1, slotCount-1))} className="text-slate-500 hover:text-white"><ChevronDown size={12}/></button>
+                </div>
+            </div>
           </div>
-          <div className="h-6 w-[1px] bg-slate-700" />
+
           <div className="flex items-center gap-2">
             <UserPlus size={16} className="text-slate-400" />
-            <div className="flex flex-wrap gap-1 max-w-md">
+            <div className="flex flex-wrap gap-1 max-w-xl">
               {characters.map(c => (
                 <button
                   key={c.id}
@@ -82,9 +152,9 @@ const TimelineVertical: React.FC<Props> = ({
                       : [...activeCharIds, c.id];
                     onUpdateActiveChars(next);
                   }}
-                  className={`px-2 py-1 rounded text-[10px] font-bold border transition-all ${
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold border transition-all ${
                     activeCharIds.includes(c.id) 
-                      ? 'bg-blue-600 border-blue-500 text-white shadow-md' 
+                      ? 'bg-blue-600 border-blue-500 text-white shadow-lg' 
                       : 'bg-slate-900 border-slate-700 text-slate-500 hover:border-slate-500'
                   }`}
                 >
@@ -94,56 +164,128 @@ const TimelineVertical: React.FC<Props> = ({
             </div>
           </div>
         </div>
-        <button 
-          onClick={() => handleOpenAdd()}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-xl text-sm font-bold shadow-lg shadow-blue-900/20 transition-all active:scale-95"
-        >
-          <Plus size={18} /> 添加活动记录
-        </button>
+        
+        <div className="flex gap-2">
+            <button 
+                onClick={() => { setSelectionStart(null); setIsPeriodModalOpen(false); }}
+                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all"
+            >
+                <Calendar size={16} /> 备注时间段
+            </button>
+            <button 
+                onClick={() => handleOpenAdd()}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-black shadow-lg shadow-blue-900/30 transition-all active:scale-95"
+            >
+                <Plus size={18} /> 活动实录
+            </button>
+        </div>
       </div>
 
-      {/* 时间线主体 */}
-      <div className="flex-1 bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden shadow-2xl relative flex flex-col">
-        {/* 表头 */}
-        <div className="flex border-b border-slate-700 bg-slate-800/80 backdrop-blur sticky top-0 z-20">
-          <div className="w-16 shrink-0 border-r border-slate-700 flex items-center justify-center font-mono text-[10px] text-slate-500 font-bold uppercase">时间轴</div>
-          <div className="flex-1 flex min-w-0">
-            {activeCharacters.map(char => (
-              <div key={char.id} className="flex-1 min-w-[150px] border-r border-slate-700/50 py-3 text-center">
-                <span className="text-sm font-black text-blue-300 tracking-tight">{char.name}</span>
+      {/* 2D Sticky 时间线主体 */}
+      <div className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl overflow-auto custom-scrollbar relative">
+        <div className="min-w-max min-h-full flex flex-col">
+          
+          {/* 表头层 - 粘性置顶 */}
+          <div className="flex sticky top-0 z-50 bg-slate-900 border-b border-slate-800">
+            {/* 左上角交叉区 - 双向粘性 */}
+            <div 
+              style={{ width: `${LEFT_SECTION_WIDTH}px` }}
+              className="sticky left-0 top-0 z-[60] shrink-0 bg-slate-900 border-r border-slate-800 flex items-center justify-center font-black text-[10px] text-slate-500 uppercase tracking-widest h-14"
+            >
+              时间/轴标
+            </div>
+
+            {/* 角色列头 */}
+            {activeCharacters.map((char, idx) => (
+              <div 
+                key={char.id} 
+                draggable
+                onDragStart={() => setDraggedCharIndex(idx)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => {
+                    if (draggedCharIndex !== null && draggedCharIndex !== idx) {
+                        const newOrder = [...sortedIds];
+                        const [moved] = newOrder.splice(draggedCharIndex, 1);
+                        newOrder.splice(idx, 0, moved);
+                        onUpdateCharOrder(newOrder);
+                    }
+                    setDraggedCharIndex(null);
+                }}
+                style={{ width: `${CHAR_COLUMN_WIDTH}px` }}
+                className={`shrink-0 border-r border-slate-800/50 flex items-center justify-center group/head cursor-move transition-colors hover:bg-slate-800/30 ${draggedCharIndex === idx ? 'opacity-20' : ''}`}
+              >
+                <div className="flex items-center justify-center gap-2">
+                    <GripVertical size={14} className="text-slate-700 group-hover/head:text-blue-500" />
+                    <span className="text-sm font-black text-blue-200">{char.name}</span>
+                </div>
               </div>
             ))}
             {activeCharIds.length === 0 && (
-              <div className="flex-1 py-10 text-center text-slate-600 italic text-sm">请点击上方按钮选取要分析的角色轨道...</div>
+                <div className="flex-1 px-8 py-4 text-slate-700 italic text-xs flex items-center">← 选取角色以展开轨道</div>
             )}
           </div>
-        </div>
 
-        {/* 滚动内容区 */}
-        <div className="flex-1 overflow-auto custom-scrollbar relative">
-          <div className="flex min-h-full">
-            {/* 时间坐标轴刻度 */}
-            <div className="w-16 shrink-0 border-r border-slate-700 bg-slate-800/20 relative z-10">
-              {Array.from({ length: slotCount }).map((_, i) => (
-                <div key={i} style={{ height: `${SLOT_HEIGHT}px` }} className="flex flex-col items-center justify-start pt-1 border-b border-slate-800/50">
-                  <span className="text-[10px] font-mono font-bold text-slate-600">G{i+1}</span>
+          {/* 内容层 - 粘性左栏 */}
+          <div className="flex-1 flex">
+            {/* 左侧固定功能栏 - 粘性靠左 */}
+            <div 
+              style={{ width: `${LEFT_SECTION_WIDTH}px` }}
+              className="sticky left-0 z-40 bg-slate-900/95 border-r border-slate-800 flex shrink-0"
+            >
+                {/* 备注子列 */}
+                <div className="w-20 shrink-0 relative bg-slate-950/20">
+                    {periods.map(p => (
+                        <div 
+                            key={p.id}
+                            style={{ 
+                                top: `${p.startSlot * SLOT_HEIGHT + 4}px`, 
+                                height: `${(p.endSlot - p.startSlot) * SLOT_HEIGHT - 8}px`,
+                                backgroundColor: `${p.color || '#3b82f6'}15`,
+                                borderColor: p.color || '#3b82f6'
+                            }}
+                            className="absolute left-1 right-1 border-l-2 rounded p-1 overflow-hidden group/p shadow-sm z-10"
+                        >
+                            <div className="text-[9px] font-bold text-slate-400 leading-tight line-clamp-3">
+                                {p.label}
+                            </div>
+                            <button 
+                                onClick={() => onUpdatePeriods(periods.filter(x => x.id !== p.id))}
+                                className="absolute top-0 right-0 p-0.5 opacity-0 group-hover/p:opacity-100 text-red-500 hover:bg-red-500/20 rounded"
+                            >
+                                <X size={8}/>
+                            </button>
+                        </div>
+                    ))}
                 </div>
-              ))}
+                {/* 轴刻度子列 */}
+                <div className="flex-1 flex flex-col bg-slate-900/40 relative">
+                    {Array.from({ length: slotCount }).map((_, i) => (
+                        <div 
+                            key={i} 
+                            style={{ height: `${SLOT_HEIGHT}px` }} 
+                            className={`flex flex-col items-center justify-center border-b border-slate-800/30 transition-colors hover:bg-slate-800/40 cursor-pointer relative group/slot ${selectionStart === i ? 'bg-blue-600/20 ring-1 ring-blue-500/50' : ''}`}
+                            onClick={() => handleSlotClick(i)}
+                        >
+                            <span className="text-[10px] font-mono font-black text-slate-600 group-hover/slot:text-slate-400 transition-colors">G{i+1}</span>
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onInsertSlot(i); }}
+                                className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 p-1.5 bg-blue-600 rounded-full text-white opacity-0 group-hover/slot:opacity-100 hover:scale-110 transition-all z-50 shadow-lg border border-white/10"
+                                title="在此处下方插入新格子"
+                            >
+                                <Plus size={10} />
+                            </button>
+                        </div>
+                    ))}
+                </div>
             </div>
 
-            {/* 角色轨道区 */}
-            <div className="flex-1 flex min-w-0 relative">
-              {/* 背景网格 */}
-              <div className="absolute inset-0 pointer-events-none">
-                {Array.from({ length: slotCount }).map((_, i) => (
-                  <div key={i} style={{ height: `${SLOT_HEIGHT}px` }} className="w-full border-b border-slate-800/50" />
-                ))}
-              </div>
-
+            {/* 角色数据轨道 */}
+            <div className="flex">
               {activeCharacters.map(char => (
                 <div 
                   key={char.id} 
-                  className="flex-1 min-w-[150px] border-r border-slate-800/30 relative group"
+                  style={{ width: `${CHAR_COLUMN_WIDTH}px` }}
+                  className="shrink-0 border-r border-slate-900/30 relative"
                   onDoubleClick={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
                     const y = e.clientY - rect.top;
@@ -151,7 +293,14 @@ const TimelineVertical: React.FC<Props> = ({
                     handleOpenAdd(char.id, slotIdx);
                   }}
                 >
-                  {/* 该角色的片段 */}
+                  {/* 背景网格线 */}
+                  <div className="absolute inset-0 pointer-events-none">
+                    {Array.from({ length: slotCount }).map((_, i) => (
+                      <div key={i} style={{ height: `${SLOT_HEIGHT}px` }} className="border-b border-slate-900/30" />
+                    ))}
+                  </div>
+
+                  {/* 行为片段 */}
                   {segments.filter(s => s.characterId === char.id).map(seg => {
                     const top = seg.startSlot * SLOT_HEIGHT;
                     const height = (seg.endSlot - seg.startSlot) * SLOT_HEIGHT;
@@ -159,33 +308,36 @@ const TimelineVertical: React.FC<Props> = ({
                       <div
                         key={seg.id}
                         style={{ 
-                          top: `${top + 4}px`, 
-                          height: `${height - 8}px`,
-                          backgroundColor: `${seg.color}22`,
+                          top: `${top + 6}px`, 
+                          height: `${height - 12}px`,
+                          backgroundColor: `${seg.color}15`,
                           borderColor: seg.color
                         }}
-                        className="absolute left-2 right-2 rounded-lg border-l-4 shadow-lg group/seg transition-all hover:scale-[1.02] hover:z-20 p-2 overflow-hidden flex flex-col justify-center"
+                        className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-3 overflow-hidden flex flex-col justify-center border border-slate-700/30 backdrop-blur-sm"
                       >
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[10px] font-black uppercase text-white/90 truncate drop-shadow-sm flex items-center gap-1">
-                            <MapPin size={10} style={{ color: seg.color }} /> {seg.locationName}
-                          </span>
+                        <div className="flex items-start justify-between">
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="text-[11px] font-black text-white/90 truncate flex items-center gap-1.5">
+                                <MapPin size={12} style={{ color: seg.color }} /> {seg.locationName}
+                              </span>
+                              {seg.timeLabel && (
+                                <div className="text-[9px] font-mono text-slate-400 flex items-center gap-1">
+                                  <Clock size={10} /> {seg.timeLabel}
+                                </div>
+                              )}
+                          </div>
                           <button 
                             onClick={() => onRemoveSegment(seg.id)}
-                            className="opacity-0 group-hover/seg:opacity-100 p-0.5 bg-red-500/80 rounded hover:bg-red-500 text-white transition-opacity"
+                            className="opacity-0 group-hover/seg:opacity-100 p-1.5 bg-red-900/40 text-red-400 rounded-lg hover:bg-red-500 hover:text-white transition-all"
                           >
-                            <Trash2 size={10} />
+                            <Trash2 size={12} />
                           </button>
                         </div>
-                        {seg.timeLabel && (
-                          <div className="flex items-center gap-1 text-[9px] font-mono text-white/50 bg-black/20 px-1 py-0.5 rounded w-fit">
-                            <Clock size={8} /> {seg.timeLabel}
-                          </div>
+                        {seg.relatedTimePointId && (
+                            <div className="mt-2 flex items-center gap-1 text-[8px] text-blue-400 font-bold bg-blue-900/20 px-1.5 py-0.5 rounded border border-blue-500/20 w-fit">
+                                <Link size={8}/> {timePoints.find(t => t.id === seg.relatedTimePointId)?.label}
+                            </div>
                         )}
-                        {/* 拖动提示或装饰 */}
-                        <div className="absolute right-1 bottom-1 opacity-10">
-                           <Calendar size={24} style={{ color: seg.color }} />
-                        </div>
                       </div>
                     );
                   })}
@@ -196,101 +348,67 @@ const TimelineVertical: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 录入 Modal */}
+      {/* 录入 Modal (保持不变) */}
       {isModalOpen && editingSeg && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-            <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-              <h3 className="font-bold text-white flex items-center gap-2">
-                <Clock size={18} className="text-blue-400" /> 轨迹记录
-              </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors"><X size={24}/></button>
+            <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+              <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />轨迹录入</h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white transition-colors p-2 hover:bg-slate-700 rounded-full"><X size={24}/></button>
             </div>
-            
-            <div className="p-6 space-y-5">
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">选择角色</label>
-                <select 
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:ring-1 focus:ring-blue-500 outline-none"
-                  value={editingSeg.characterId}
-                  onChange={(e) => setEditingSeg({ ...editingSeg, characterId: e.target.value })}
-                >
+            <div className="p-8 space-y-6">
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">角色选取</label>
+                <select className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white focus:ring-2 focus:ring-blue-500/50 outline-none appearance-none" value={editingSeg.characterId} onChange={(e) => setEditingSeg({ ...editingSeg, characterId: e.target.value })}>
                   {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
-
               <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">起始格 (G1...)</label>
-                  <input 
-                    type="number" min="0" max={slotCount - 1}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none"
-                    value={editingSeg.startSlot}
-                    onChange={(e) => setEditingSeg({ ...editingSeg, startSlot: parseInt(e.target.value) || 0 })}
-                  />
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">起始格 (G)</label>
+                  <input type="number" min="0" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none" value={(editingSeg.startSlot || 0) + 1} onChange={(e) => setEditingSeg({ ...editingSeg, startSlot: Math.max(0, parseInt(e.target.value) - 1 || 0) })} />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 uppercase">终止格 (G2...)</label>
-                  <input 
-                    type="number" min={editingSeg.startSlot || 0} max={slotCount}
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none"
-                    value={editingSeg.endSlot}
-                    onChange={(e) => setEditingSeg({ ...editingSeg, endSlot: parseInt(e.target.value) || 1 })}
-                  />
+                <div className="space-y-2">
+                  <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">终止格 (G)</label>
+                  <input type="number" min={editingSeg.startSlot || 0} className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none" value={editingSeg.endSlot} onChange={(e) => setEditingSeg({ ...editingSeg, endSlot: parseInt(e.target.value) || 1 })} />
                 </div>
               </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">备注地点</label>
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-3 text-slate-600" size={16} />
-                  <input 
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="例如: 别墅图书馆, 死角..."
-                    value={editingSeg.locationName}
-                    list="location-hints"
-                    onChange={(e) => setEditingSeg({ ...editingSeg, locationName: e.target.value })}
-                  />
-                  <datalist id="location-hints">
-                    {locations.map(l => <option key={l.id} value={l.name} />)}
-                  </datalist>
-                </div>
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">活动地点</label>
+                <input className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500/50" placeholder="如: 后花园..." value={editingSeg.locationName} list="loc-hints-timeline" onChange={(e) => setEditingSeg({ ...editingSeg, locationName: e.target.value })} />
+                <datalist id="loc-hints-timeline">{locations.map(l => <option key={l.id} value={l.name} />)}</datalist>
               </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">时间标签 (选填)</label>
-                <div className="relative">
-                  <Edit2 className="absolute left-3 top-3 text-slate-600" size={16} />
-                  <input 
-                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-10 pr-4 py-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
-                    placeholder="例如: 12:45 - 13:00"
-                    value={editingSeg.timeLabel}
-                    onChange={(e) => setEditingSeg({ ...editingSeg, timeLabel: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-bold text-slate-500 uppercase">标记颜色</label>
-                <div className="flex gap-2">
-                  {COLORS.map(c => (
-                    <button 
-                      key={c} 
-                      onClick={() => setEditingSeg({ ...editingSeg, color: c })}
-                      style={{ backgroundColor: c }}
-                      className={`w-8 h-8 rounded-full border-2 transition-all ${editingSeg.color === c ? 'border-white scale-110' : 'border-transparent opacity-50'}`}
-                    />
-                  ))}
-                </div>
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">时间备注</label>
+                <input className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none" placeholder="例如: 14:00" value={editingSeg.timeLabel} onChange={(e) => setEditingSeg({ ...editingSeg, timeLabel: e.target.value })} />
               </div>
             </div>
-
-            <div className="p-5 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/20">
+            <div className="p-6 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/30">
               <button onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-slate-400 hover:text-white text-sm font-bold">取消</button>
-              <button onClick={handleSave} className="px-10 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-black shadow-xl shadow-blue-900/20 transition-all active:scale-95">完成录入</button>
+              <button onClick={handleSaveSegment} className="px-12 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-sm font-black shadow-xl">完成</button>
             </div>
           </div>
         </div>
+      )}
+
+      {/* 时间段备注 Modal */}
+      {isPeriodModalOpen && (
+          <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-sm overflow-hidden">
+                <div className="p-5 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
+                    <h3 className="font-bold text-white flex items-center gap-2"><Calendar size={18} className="text-blue-400"/> 添加时间备注</h3>
+                    <button onClick={() => setIsPeriodModalOpen(false)}><X size={20} className="text-slate-400"/></button>
+                </div>
+                <div className="p-6 space-y-4">
+                    <div className="bg-blue-900/20 border border-blue-500/30 p-3 rounded-xl text-xs text-blue-300">正在为 G{editingSeg?.startSlot! + 1} 到 G{editingSeg?.endSlot!} 添加备注</div>
+                    <input autoFocus className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:ring-2 focus:ring-blue-500/50" placeholder="例如: 午休时间..." value={newPeriodLabel} onChange={(e) => setNewPeriodLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSavePeriod()} />
+                </div>
+                <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex justify-end gap-2">
+                    <button onClick={() => setIsPeriodModalOpen(false)} className="px-4 py-2 text-slate-400 text-sm">取消</button>
+                    <button onClick={handleSavePeriod} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold shadow-lg">确认</button>
+                </div>
+            </div>
+          </div>
       )}
     </div>
   );
