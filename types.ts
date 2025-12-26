@@ -6,7 +6,7 @@ export interface Character {
   role?: string;
   description?: string;
   note?: string; 
-  imageId?: string; // 引用存储在 IndexedDB 中的图片 ID
+  imageId?: string; 
 }
 
 export interface Relationship {
@@ -65,6 +65,17 @@ export interface Alibi {
   locationId?: string; 
   status: '确凿' | '模糊' | '无证明';
   details?: string;
+}
+
+// --- 时间线片段数据定义 ---
+export interface TimelineSegment {
+  id: string;
+  characterId: string;
+  startSlot: number; // 起始格索引
+  endSlot: number;   // 结束格索引
+  locationName: string;
+  timeLabel?: string; // 选填的时间显示文字
+  color?: string;
 }
 
 export interface Point {
@@ -126,6 +137,11 @@ export interface AppState {
   timelineData: TimelineData;
   itemTimelineData: ItemTimelineData; 
   
+  // 时间线新字段
+  timelineSegments: TimelineSegment[];
+  timelineActiveCharIds: string[]; // 时间线图谱显示的活动角色
+  timelineSlotCount: number;      // 总格子数
+
   currentMapId: string;
   currentTimeId: string;
   graphActiveCharacterIds: string[];
@@ -154,6 +170,10 @@ export const INITIAL_STATE: AppState = {
   timePoints: [{ id: 't1', label: '初始时刻', order: 0 }],
   timelineData: {},
   itemTimelineData: {}, 
+
+  timelineSegments: [],
+  timelineActiveCharIds: [],
+  timelineSlotCount: 24, // 默认24格
   
   currentMapId: 'default',
   currentTimeId: 't1',

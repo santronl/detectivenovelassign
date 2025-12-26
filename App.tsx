@@ -2,12 +2,13 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
-import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Clue, CharacterGroup, Alibi, Location } from './types';
+import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Clue, CharacterGroup, Alibi, Location, TimelineSegment } from './types';
 import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
 import AlibiMatrix from './components/AlibiMatrix';
 import LocationList from './components/LocationList';
 import MapCanvas from './components/MapCanvas';
+import TimelineVertical from './components/TimelineVertical';
 import ClueModal from './components/ClueModal';
 import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle, saveImageToDB, loadImageFromDB, getAllImageIdsFromDB, deleteImageFromDB, clearAllData } from './services/storage';
 import { compressImage } from './utils/imageProcessor';
@@ -40,14 +41,15 @@ import {
   User,
   FileArchive,
   ArrowUpCircle,
-  LogOut
+  LogOut,
+  Clock
 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>(INITIAL_STATE);
   const [isInitialized, setIsInitialized] = useState(false);
   const [inputText, setInputText] = useState('');
-  const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map'>('graph');
+  const [activeTab, setActiveTab] = useState<'graph' | 'evidence' | 'map' | 'timeline'>('graph');
   const [evidenceSubTab, setEvidenceSubTab] = useState<'clues' | 'alibis' | 'locations'>('clues');
   const [sidebarTab, setSidebarTab] = useState<'characters' | 'clues'>('characters');
   
@@ -254,7 +256,6 @@ const App: React.FC = () => {
         const oldUrl = (clue as any).imageUrl;
         if (oldUrl && !clue.imageId) {
           clue.imageId = await migrateImage(oldUrl);
-          // Fix: changed 'char' to 'clue' because 'char' is not defined in this scope
           delete (clue as any).imageUrl;
         }
       }
@@ -447,6 +448,8 @@ const App: React.FC = () => {
         characters: prev.characters.filter(c => c.id !== charId),
         relationships: prev.relationships.filter(r => r.source !== charId && r.target !== charId),
         graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(id => id !== charId),
+        timelineActiveCharIds: prev.timelineActiveCharIds.filter(id => id !== charId),
+        timelineSegments: prev.timelineSegments.filter(s => s.characterId !== charId),
         alibis: prev.alibis.map(a => ({
           ...a,
           character_ids: a.character_ids.filter(id => id !== charId)
@@ -608,7 +611,7 @@ const App: React.FC = () => {
           <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col h-[500px]">
             <div className="bg-slate-900/50 border-b border-slate-700 flex">
               <button onClick={() => setSidebarTab('characters')} className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'characters' ? 'text-purple-400 bg-slate-800 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}><Users size={14} /> 登场人物 ({state.characters.length})</button>
-              <button onClick={() => setSidebarTab('clues')} className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}><Package size={14} /> 证物清单 ({state.clues.length})</button>
+              <button onClick={() => setSidebarTab('clues')} className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}><Package size={14} /> 证物清单 ({state.clues.length})</button>
             </div>
             
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
@@ -670,6 +673,7 @@ const App: React.FC = () => {
               { id: 'graph', label: '逻辑关系网', icon: Users },
               { id: 'evidence', label: '证物与线索', icon: Search },
               { id: 'map', label: '空间轨迹', icon: MapIcon },
+              { id: 'timeline', label: '时间序列', icon: Clock },
             ].map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id as any)} className={`flex items-center gap-2 px-6 py-3 text-sm font-medium border-b-2 transition-all ${activeTab === tab.id ? 'border-blue-500 text-blue-400 bg-blue-500/5' : 'border-transparent text-slate-400 hover:text-slate-200'}`}><tab.icon size={16} /> {tab.label}</button>
             ))}
@@ -692,30 +696,19 @@ const App: React.FC = () => {
               </div>
             )}
             {activeTab === 'map' && (
-              <MapCanvas 
-                maps={state.maps} 
-                currentMapId={state.currentMapId} 
-                spaces={state.spaces} 
-                clues={state.clues} 
-                alibis={state.alibis} 
-                timePoints={state.timePoints} 
-                currentTimeId={state.currentTimeId} 
-                timelineData={state.timelineData} 
-                itemTimelineData={state.itemTimelineData} 
-                characters={state.characters} 
-                blobUrls={blobUrls} 
-                onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} 
-                onDeleteMap={handleDeleteMap} 
-                onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} 
-                onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} 
-                onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} 
-                onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} 
-                onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} 
-                onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} 
-                onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} 
-                onAddClue={handleSaveClue} 
-                onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} 
-                onImageSave={handleEntityImageSave} 
+              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />
+            )}
+            {activeTab === 'timeline' && (
+              <TimelineVertical 
+                characters={state.characters}
+                segments={state.timelineSegments}
+                activeCharIds={state.timelineActiveCharIds}
+                slotCount={state.timelineSlotCount}
+                locations={state.locations}
+                onAddSegment={(seg) => setState(prev => ({ ...prev, timelineSegments: [...prev.timelineSegments, seg] }))}
+                onRemoveSegment={(id) => setState(prev => ({ ...prev, timelineSegments: prev.timelineSegments.filter(s => s.id !== id) }))}
+                onUpdateActiveChars={(ids) => setState(prev => ({ ...prev, timelineActiveCharIds: ids }))}
+                onUpdateSlotCount={(count) => setState(prev => ({ ...prev, timelineSlotCount: count }))}
               />
             )}
           </div>
