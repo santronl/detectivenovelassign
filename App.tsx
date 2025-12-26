@@ -72,7 +72,6 @@ const App: React.FC = () => {
   const fileImportRef = useRef<HTMLInputElement>(null);
 
   // 初始化时清理 URL，防止内存泄漏
-  // Fix: Use Object.keys to avoid "unknown" to "string" type errors often associated with Object.values and strictly typed environments.
   useEffect(() => {
     return () => {
       Object.keys(blobUrls).forEach((key) => {
@@ -202,7 +201,6 @@ const App: React.FC = () => {
   const handleResetArchive = async () => {
     try {
       // 1. 清理 Blob URLs 内存
-      // Fix: Use Object.keys to avoid "unknown" type errors from Object.values result
       Object.keys(blobUrls).forEach(key => {
         const url = blobUrls[key];
         if (typeof url === 'string') {
@@ -706,7 +704,7 @@ const App: React.FC = () => {
               </div>
             )}
             {activeTab === 'map' && (
-              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />
+              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />
             )}
           </div>
         </div>
