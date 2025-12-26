@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
@@ -200,7 +201,6 @@ const App: React.FC = () => {
   // 退出存档，从空白开始
   const handleResetArchive = async () => {
     try {
-      // 1. 清理 Blob URLs 内存
       Object.keys(blobUrls).forEach(key => {
         const url = blobUrls[key];
         if (typeof url === 'string') {
@@ -209,11 +209,9 @@ const App: React.FC = () => {
       });
       setBlobUrls({});
       
-      // 2. 清空 IndexedDB
       await clearAllData();
       await saveFileHandle(null);
       
-      // 3. 重置 React 状态
       setState(INITIAL_STATE);
       setFileHandle(null);
       setInputText('');
@@ -225,7 +223,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 迁移逻辑：将旧版 Base64 转换为 IndexedDB 存储
   const migrateLegacyData = async (data: any): Promise<AppState> => {
     const migrateImage = async (base64?: string) => {
       if (!base64 || !base64.startsWith('data:')) return undefined;
@@ -243,7 +240,6 @@ const App: React.FC = () => {
 
     const newState = { ...INITIAL_STATE, ...data };
 
-    // 人物
     if (newState.characters) {
       for (const char of newState.characters) {
         const oldUrl = (char as any).imageUrl;
@@ -253,12 +249,12 @@ const App: React.FC = () => {
         }
       }
     }
-    // 证物
     if (newState.clues) {
       for (const clue of newState.clues) {
         const oldUrl = (clue as any).imageUrl;
         if (oldUrl && !clue.imageId) {
           clue.imageId = await migrateImage(oldUrl);
+          // Fix: changed 'char' to 'clue' because 'char' is not defined in this scope
           delete (clue as any).imageUrl;
         }
       }
@@ -266,7 +262,6 @@ const App: React.FC = () => {
     return newState;
   };
 
-  // 核心：打包导出或覆盖保存
   const exportArchive = async (isSaveAs: boolean) => {
     try {
       const zip = new JSZip();
@@ -287,7 +282,6 @@ const App: React.FC = () => {
       const content = await zip.generateAsync({ type: "blob" });
       const fileName = state.lastFileName ? state.lastFileName.replace(/\.json$/, '.mind') : `mystery-${new Date().toISOString().slice(0,10)}.mind`;
 
-      // 如果有已有的句柄且不是另存为
       if (fileHandle && !isSaveAs && !isIframe) {
         const options = { mode: 'readwrite' as any };
         if (await fileHandle.queryPermission(options) !== 'granted') {
@@ -303,7 +297,6 @@ const App: React.FC = () => {
         return;
       }
 
-      // 另存为或初始保存
       if ('showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
         try {
           const handle = await (window as any).showSaveFilePicker({
@@ -317,7 +310,7 @@ const App: React.FC = () => {
           await writable.write(content);
           await writable.close();
           setFileHandle(handle);
-          saveFileHandle(handle); // 存入 IndexedDB
+          saveFileHandle(handle);
           setState(prev => ({ ...prev, lastFileName: handle.name }));
           setShowExportModal(false);
           setStatusMessage("档案打包并保存成功");
@@ -325,7 +318,6 @@ const App: React.FC = () => {
           if (err.name !== 'AbortError') throw err;
         }
       } else {
-        // 降级：直接下载
         const url = URL.createObjectURL(content);
         const link = document.createElement('a');
         link.href = url;
@@ -341,7 +333,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 核心：智能导入 (支持 .mind 或 .json)
   const handleImportFile = async (file: File) => {
     const isZip = file.name.endsWith('.mind') || file.type === 'application/zip' || file.type === 'application/x-zip-compressed';
     const isJson = file.name.endsWith('.json') || file.type === 'application/json';
@@ -374,12 +365,9 @@ const App: React.FC = () => {
         throw new Error("不支持的文件类型");
       }
 
-      // 执行迁移逻辑
       const migratedState = await migrateLegacyData(parsedData);
-      
       setState({ ...migratedState, lastFileName: file.name.replace(/\.json$/, '.mind') });
       await refreshBlobUrls(migratedState);
-      
       setStatusMessage(isJson ? "旧版档案已成功迁移至新系统" : "档案加载成功");
     } catch (err: any) {
       console.error(err);
@@ -620,7 +608,7 @@ const App: React.FC = () => {
           <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col h-[500px]">
             <div className="bg-slate-900/50 border-b border-slate-700 flex">
               <button onClick={() => setSidebarTab('characters')} className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'characters' ? 'text-purple-400 bg-slate-800 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}><Users size={14} /> 登场人物 ({state.characters.length})</button>
-              <button onClick={() => setSidebarTab('clues')} className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}><Package size={14} /> 证物清单 ({state.clues.length})</button>
+              <button onClick={() => setSidebarTab('clues')} className={`flex-1 flex items-center justify-center gap-2 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}><Package size={14} /> 证物清单 ({state.clues.length})</button>
             </div>
             
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
@@ -704,7 +692,31 @@ const App: React.FC = () => {
               </div>
             )}
             {activeTab === 'map' && (
-              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />
+              <MapCanvas 
+                maps={state.maps} 
+                currentMapId={state.currentMapId} 
+                spaces={state.spaces} 
+                clues={state.clues} 
+                alibis={state.alibis} 
+                timePoints={state.timePoints} 
+                currentTimeId={state.currentTimeId} 
+                timelineData={state.timelineData} 
+                itemTimelineData={state.itemTimelineData} 
+                characters={state.characters} 
+                blobUrls={blobUrls} 
+                onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} 
+                onDeleteMap={handleDeleteMap} 
+                onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} 
+                onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} 
+                onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} 
+                onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} 
+                onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} 
+                onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} 
+                onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} 
+                onAddClue={handleSaveClue} 
+                onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} 
+                onImageSave={handleEntityImageSave} 
+              />
             )}
           </div>
         </div>

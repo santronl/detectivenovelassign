@@ -1,5 +1,7 @@
 {
-  "name": "Copy of MysteryMind - 推理小说阅读助手",
+  "name": "MysteryMind - 推理小说阅读助手",
   "description": "A specialized assistant for mystery novel readers to track characters, relationships, evidence, and timelines using strict logic and AI analysis.",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "camera"
+  ]
 }
