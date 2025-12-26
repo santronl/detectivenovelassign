@@ -52,6 +52,21 @@ export const loadFromIndexedDB = async (): Promise<AppState | null> => {
 };
 
 /**
+ * 彻底清空所有数据
+ */
+export const clearAllData = async (): Promise<void> => {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction([STORE_NAME, IMAGE_STORE], 'readwrite');
+    transaction.objectStore(STORE_NAME).clear();
+    transaction.objectStore(IMAGE_STORE).clear();
+    
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  });
+};
+
+/**
  * 图片存储相关函数
  */
 export const saveImageToDB = async (id: string, blob: Blob): Promise<void> => {

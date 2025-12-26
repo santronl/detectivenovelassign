@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
@@ -9,7 +8,7 @@ import AlibiMatrix from './components/AlibiMatrix';
 import LocationList from './components/LocationList';
 import MapCanvas from './components/MapCanvas';
 import ClueModal from './components/ClueModal';
-import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle, saveImageToDB, loadImageFromDB, getAllImageIdsFromDB, deleteImageFromDB } from './services/storage';
+import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle, saveImageToDB, loadImageFromDB, getAllImageIdsFromDB, deleteImageFromDB, clearAllData } from './services/storage';
 import { compressImage } from './utils/imageProcessor';
 import { 
   Users, 
@@ -39,7 +38,8 @@ import {
   Camera,
   User,
   FileArchive,
-  ArrowUpCircle
+  ArrowUpCircle,
+  LogOut
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -63,6 +63,7 @@ const App: React.FC = () => {
   const [clueToDeleteId, setClueToDeleteId] = useState<string | null>(null);
   
   const [showExportModal, setShowExportModal] = useState(false);
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
@@ -71,9 +72,15 @@ const App: React.FC = () => {
   const fileImportRef = useRef<HTMLInputElement>(null);
 
   // 初始化时清理 URL，防止内存泄漏
+  // Fix: Use Object.keys to avoid "unknown" to "string" type errors often associated with Object.values and strictly typed environments.
   useEffect(() => {
     return () => {
-      Object.values(blobUrls).forEach((url) => URL.revokeObjectURL(url as string));
+      Object.keys(blobUrls).forEach((key) => {
+        const url = blobUrls[key];
+        if (typeof url === 'string') {
+          URL.revokeObjectURL(url);
+        }
+      });
     };
   }, []);
 
@@ -191,6 +198,35 @@ const App: React.FC = () => {
     }
   };
 
+  // 退出存档，从空白开始
+  const handleResetArchive = async () => {
+    try {
+      // 1. 清理 Blob URLs 内存
+      // Fix: Use Object.keys to avoid "unknown" type errors from Object.values result
+      Object.keys(blobUrls).forEach(key => {
+        const url = blobUrls[key];
+        if (typeof url === 'string') {
+          URL.revokeObjectURL(url);
+        }
+      });
+      setBlobUrls({});
+      
+      // 2. 清空 IndexedDB
+      await clearAllData();
+      await saveFileHandle(null);
+      
+      // 3. 重置 React 状态
+      setState(INITIAL_STATE);
+      setFileHandle(null);
+      setInputText('');
+      setShowClearConfirm(false);
+      
+      setStatusMessage("已退出当前案情，全新画布已就绪");
+    } catch (err) {
+      setErrorMessage("清空数据失败，请刷新页面重试");
+    }
+  };
+
   // 迁移逻辑：将旧版 Base64 转换为 IndexedDB 存储
   const migrateLegacyData = async (data: any): Promise<AppState> => {
     const migrateImage = async (base64?: string) => {
@@ -225,7 +261,6 @@ const App: React.FC = () => {
         const oldUrl = (clue as any).imageUrl;
         if (oldUrl && !clue.imageId) {
           clue.imageId = await migrateImage(oldUrl);
-          // Fix: Correct variable name from char to clue on line 228
           delete (clue as any).imageUrl;
         }
       }
@@ -256,8 +291,6 @@ const App: React.FC = () => {
 
       // 如果有已有的句柄且不是另存为
       if (fileHandle && !isSaveAs && !isIframe) {
-        // 请求权限（如果需要）
-        // Fix: Replace FileSystemPermissionMode with any on line 259 to avoid build error
         const options = { mode: 'readwrite' as any };
         if (await fileHandle.queryPermission(options) !== 'granted') {
           if (await fileHandle.requestPermission(options) !== 'granted') {
@@ -377,7 +410,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 其余 Handle 逻辑...
   const handleAddLocation = (loc: Location) => setState(p => ({ ...p, locations: [...p.locations, loc] }));
   const handleUpdateLocation = (loc: Location) => setState(p => ({ ...p, locations: p.locations.map(l => l.id === loc.id ? loc : l) }));
   const handleDeleteLocation = (id: string) => setState(p => ({ 
@@ -558,6 +590,14 @@ const App: React.FC = () => {
               <div className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${fileHandle ? 'bg-green-900/20 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>
                  {fileHandle ? <Link2 size={12}/> : <Link2Off size={12}/>} {fileHandle ? '已关联本地文件' : isIframe ? '沙盒环境受限' : '未关联文件'}
               </div>
+              
+              <button onClick={() => setShowClearConfirm(true)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-red-400 group transition-colors" title="空白画布，开启新档案">
+                <FilePlus size={18} className="group-hover:scale-110 transition-transform" />
+                <span className="text-sm font-medium">新建档案</span>
+              </button>
+
+              <div className="w-[1px] h-6 bg-slate-700 mx-2"></div>
+
               <input type="file" ref={fileImportRef} onChange={(e) => e.target.files?.[0] && handleImportFile(e.target.files[0])} accept=".mind,.json" className="hidden" />
               <button onClick={handleOpenFile} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><FolderOpen size={18} className="group-hover:scale-110 transition-transform" /> <span className="text-sm font-medium">导入存档</span></button>
               
@@ -628,7 +668,7 @@ const App: React.FC = () => {
                           )}
                           <div className="flex flex-col truncate min-w-0"><span className="text-sm font-bold text-amber-200 truncate">{clue.name}</span>{clue.description && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{clue.description}</span>}</div>
                         </div>
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14} /></button><button onClick={(e) => { e.stopPropagation(); setClueToDeleteId(clue.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14} /></button></div>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={(e) => { e.stopPropagation(); setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14} /></button><button onClick={(e) => { e.stopPropagation(); setClueToDeleteId(clue.id); }} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14}/></button></div>
                       </div>
                     );
                   })}
@@ -666,7 +706,7 @@ const App: React.FC = () => {
               </div>
             )}
             {activeTab === 'map' && (
-              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />
+              <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={handleDeleteMap} onCreateMap={n => { const id = crypto.randomUUID(); setState(prev => ({ ...prev, maps: [...prev.maps, { id, name: n }], currentMapId: id })) }} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, placements) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: placements } }))} onUpdateItemPlacements={(tid, placements) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: placements } }))} onAddClue={handleSaveClue} onOpenClueModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />
             )}
           </div>
         </div>
@@ -694,6 +734,38 @@ const App: React.FC = () => {
               <button onClick={() => exportArchive(true)} className="w-full flex items-center justify-center gap-3 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all font-bold shadow-xl shadow-blue-900/20">
                 <Save size={20} /> 打包导出 .mind
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showClearConfirm && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-lg p-4 animate-in fade-in duration-300">
+          <div className="bg-slate-800 rounded-3xl border border-red-900/50 shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center space-y-6">
+              <div className="w-20 h-20 bg-red-900/30 rounded-full flex items-center justify-center mx-auto border border-red-500/30 shadow-lg shadow-red-900/20">
+                <AlertTriangle className="text-red-500" size={40} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-2xl font-black text-white">彻底清空案情档案?</h3>
+                <p className="text-slate-400 text-sm leading-relaxed px-4">
+                  该操作将退出当前正在进行的推理，<span className="text-red-400 font-bold underline">永久删除</span>所有未导出的本地图片和逻辑关联。
+                </p>
+              </div>
+              <div className="flex flex-col gap-3 pt-4">
+                <button 
+                  onClick={handleResetArchive} 
+                  className="w-full flex items-center justify-center gap-3 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black shadow-xl shadow-red-900/30 transition-all active:scale-95 group"
+                >
+                  <LogOut size={20} className="group-hover:translate-x-1 transition-transform" /> 确认清空并新建
+                </button>
+                <button 
+                  onClick={() => setShowClearConfirm(false)} 
+                  className="w-full py-4 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-2xl font-bold transition-all"
+                >
+                  取消
+                </button>
+              </div>
             </div>
           </div>
         </div>
