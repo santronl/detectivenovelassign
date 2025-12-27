@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Character, Relationship, RelationshipDef, CharacterGroup, Clue } from '../types';
-import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, Layers, Check, Edit2, X, AlertTriangle, Package, Users, Maximize, Minimize } from 'lucide-react';
+import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, Layers, Check, Edit2, X, AlertTriangle, Package, Users, Maximize, Minimize, CheckCircle } from 'lucide-react';
 
 interface Props {
   viewMode: 'people' | 'items'; // 画布模式
@@ -490,6 +490,15 @@ const RelationshipGraph: React.FC<Props> = ({
                     </div>
                     <span className="text-xs font-black text-slate-200 uppercase tracking-widest">{viewMode === 'people' ? '人物关系画布' : '物证逻辑画布'}</span>
                 </div>
+                
+                {mode === 'group' && (
+                  <div className="bg-yellow-900/30 backdrop-blur-md border border-yellow-500/30 px-4 py-3 rounded-xl shadow-2xl animate-in fade-in slide-in-from-left-2 flex flex-col gap-1">
+                    <span className="text-[10px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-2">
+                      <Layers size={12} /> 分组模式
+                    </span>
+                    <span className="text-[11px] text-yellow-200/80 font-medium">点击画布上的节点以选中/取消成员</span>
+                  </div>
+                )}
             </div>
 
             <button 
@@ -498,13 +507,37 @@ const RelationshipGraph: React.FC<Props> = ({
             >
                 {isExpanded ? <Minimize size={20} /> : <Maximize size={20} />}
             </button>
+
+            {/* 修复：分组确认悬浮窗 */}
+            {mode === 'group' && selectedForGroup.size > 0 && (
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900/95 border border-yellow-500/50 p-5 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+                    <div className="flex flex-col">
+                        <div className="text-xs font-black text-yellow-500 uppercase tracking-tighter">已选成员</div>
+                        <div className="text-sm font-bold text-white leading-tight">{selectedForGroup.size} 名侦探/嫌疑人</div>
+                    </div>
+                    <div className="w-[1px] h-8 bg-slate-700 mx-2"></div>
+                    <button 
+                        onClick={() => setIsGroupModalOpen(true)}
+                        className="bg-yellow-600 hover:bg-yellow-500 text-white px-8 py-3 rounded-xl text-sm font-black shadow-xl shadow-yellow-900/20 transition-all active:scale-95 flex items-center gap-2"
+                    >
+                        <CheckCircle size={18} /> 正式创建阵营
+                    </button>
+                    <button 
+                        onClick={() => setSelectedForGroup(new Set())}
+                        className="p-3 text-slate-500 hover:text-red-400 transition-colors bg-slate-800 rounded-xl"
+                        title="清除选中"
+                    >
+                        <Trash2 size={20} />
+                    </button>
+                </div>
+            )}
         </div>
 
         <div className={`w-full lg:w-72 flex flex-col gap-4 shrink-0 transition-all ${isExpanded ? 'bg-slate-900/40 p-4 rounded-2xl border border-slate-800' : ''}`}>
             <div className="bg-slate-800 p-1 rounded-xl flex border border-slate-700 shadow-lg">
                 <button onClick={() => { setMode('move'); setSelectedSource(null); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'move' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}><Move size={18} /></button>
                 <button onClick={() => setMode('connect')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'connect' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}><LinkIcon size={18} /></button>
-                {viewMode === 'people' && <button onClick={() => setMode('group')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'group' ? 'bg-yellow-600 text-white shadow' : 'text-slate-400 hover:text-yellow-400'}`}><Layers size={18} /></button>}
+                {viewMode === 'people' && <button onClick={() => { setMode('group'); setSelectedForGroup(new Set()); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'group' ? 'bg-yellow-600 text-white shadow' : 'text-slate-400 hover:text-yellow-400'}`}><Layers size={18} /></button>}
                 <button onClick={() => setMode('delete')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'delete' ? 'bg-red-600 text-white shadow' : 'text-slate-400 hover:text-red-400'}`}><Trash2 size={18} /></button>
             </div>
 
@@ -540,13 +573,14 @@ const RelationshipGraph: React.FC<Props> = ({
         )}
 
         {isGroupModalOpen && (
-            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-lg">
-                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-72 shadow-2xl animate-in zoom-in-95">
-                    <h3 className="text-sm font-black text-white mb-4 uppercase tracking-widest">新建阵营分组</h3>
-                    <input autoFocus value={newGroupLabel} onChange={(e) => setNewGroupLabel(e.target.value)} placeholder="组名..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white mb-4 focus:ring-2 focus:ring-yellow-500 outline-none" />
-                    <div className="flex justify-end gap-3">
-                        <button onClick={() => setIsGroupModalOpen(false)} className="px-4 py-2 text-xs text-slate-400 font-bold">取消</button>
-                        <button onClick={handleCreateGroup} className="px-6 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded-xl text-xs font-black shadow-lg">创建</button>
+            <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/80 backdrop-blur-sm rounded-lg p-4">
+                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
+                    <h3 className="text-lg font-black text-white mb-4 uppercase tracking-widest text-center">命名此阵营分组</h3>
+                    <p className="text-slate-500 text-xs text-center mb-6 italic">已选定 {selectedForGroup.size} 名成员加入该阵营</p>
+                    <input autoFocus value={newGroupLabel} onChange={(e) => setNewGroupLabel(e.target.value)} placeholder="如: 关东侦探团, 黑衣人组织..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-white mb-6 focus:ring-2 focus:ring-yellow-500 outline-none" onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()} />
+                    <div className="flex gap-3">
+                        <button onClick={() => setIsGroupModalOpen(false)} className="flex-1 py-3 text-sm text-slate-400 font-bold border border-slate-700 rounded-xl">返回重选</button>
+                        <button onClick={handleCreateGroup} className="flex-1 py-3 bg-yellow-600 hover:bg-yellow-500 text-white rounded-xl text-sm font-black shadow-lg">确定创建</button>
                     </div>
                 </div>
             </div>

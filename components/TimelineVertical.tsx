@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -109,9 +109,22 @@ const TimelineVertical: React.FC<Props> = ({
       }
   };
 
+  const handleSlotClick = (i: number) => {
+    if (selectionStart === null) {
+      setSelectionStart(i);
+    } else {
+      const start = Math.min(selectionStart, i);
+      const end = Math.max(selectionStart, i) + 1;
+      setSelectionStart(null);
+      setShowGuide(false);
+      setEditingSeg({ startSlot: start, endSlot: end } as any);
+      setIsPeriodModalOpen(true);
+    }
+  };
+
   return (
-    <div className={`flex flex-col transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-[400] bg-slate-950 p-6' : 'min-h-screen space-y-4'}`}>
-      <div className="flex items-center justify-between bg-slate-800/80 p-4 rounded-xl border border-slate-700 shadow-xl backdrop-blur shrink-0 sticky top-0 z-[100]">
+    <div className={`flex flex-col transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-[400] bg-slate-950 p-6 overflow-hidden' : 'min-h-screen space-y-4'}`}>
+      <div className="flex items-center justify-between bg-slate-800/80 p-4 rounded-xl border border-slate-700 shadow-xl backdrop-blur shrink-0 z-[110]">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-3">
             <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">轴格配置</span>
@@ -156,8 +169,8 @@ const TimelineVertical: React.FC<Props> = ({
         
         <div className="flex gap-2 items-center">
             <button 
-                onClick={() => { setShowGuide(true); setTimeout(() => setShowGuide(false), 3000); }}
-                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all"
+                onClick={() => { setShowGuide(true); setSelectionStart(null); }}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all shadow-lg ${showGuide ? 'bg-amber-600 ring-2 ring-amber-400 text-white' : 'bg-slate-700 hover:bg-slate-600 text-white'}`}
             >
                 <Calendar size={16} /> 备注时间段
             </button>
@@ -176,18 +189,26 @@ const TimelineVertical: React.FC<Props> = ({
         </div>
       </div>
 
-      <div 
-        className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl overflow-x-auto custom-scrollbar relative"
-        style={{ transform: 'rotateX(180deg)' }} 
-      >
-        <div 
-          className="min-w-max min-h-full flex flex-col"
-          style={{ transform: 'rotateX(180deg)' }} 
-        >
-          <div className="flex sticky top-0 z-50 bg-slate-900 border-b border-slate-800">
+      {showGuide && (
+        <div className="bg-amber-900/40 border border-amber-500/30 p-4 rounded-xl flex items-start gap-4 animate-in slide-in-from-top-2 z-[105]">
+          <div className="p-2 bg-amber-500 rounded-lg text-slate-900 shadow-lg shadow-amber-900/20">
+            <Info size={20} />
+          </div>
+          <div>
+            <h4 className="text-sm font-black text-amber-500 uppercase tracking-widest">操作指引</h4>
+            <p className="text-xs text-amber-100/70 leading-relaxed">请点击下方左侧轴标区（G1, G2...）来确定时间段：先点击<span className="text-amber-400 font-bold underline">起始格</span>，再点击<span className="text-amber-400 font-bold underline">终止格</span>。</p>
+          </div>
+          <button onClick={() => setShowGuide(false)} className="ml-auto text-amber-500 hover:text-white p-1 transition-colors"><X size={18} /></button>
+        </div>
+      )}
+
+      <div className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl overflow-auto custom-scrollbar relative mt-4">
+        <div className="min-w-max flex flex-col h-full bg-[#020617]">
+          {/* Header Row - Using standard layout, no transfroms */}
+          <div className="flex sticky top-0 z-[60] bg-[#0f172a] border-b border-slate-800">
             <div 
               style={{ width: `${LEFT_SECTION_WIDTH}px` }}
-              className="sticky left-0 top-0 z-[60] shrink-0 bg-slate-900 border-r border-slate-800 flex items-center justify-center font-black text-[10px] text-slate-500 uppercase tracking-widest h-14"
+              className="sticky left-0 z-[70] shrink-0 bg-[#0f172a] border-r border-slate-800 flex items-center justify-center font-black text-[10px] text-slate-500 uppercase tracking-widest h-14"
             >
               时间/轴标
             </div>
@@ -207,7 +228,7 @@ const TimelineVertical: React.FC<Props> = ({
                     setDraggedCharIndex(null);
                 }}
                 style={{ width: `${CHAR_COLUMN_WIDTH}px` }}
-                className={`shrink-0 border-r border-slate-800/50 flex items-center justify-center group/head cursor-move transition-colors hover:bg-slate-800/30 ${draggedCharIndex === idx ? 'opacity-20' : ''}`}
+                className={`shrink-0 border-r border-slate-800/50 flex items-center justify-center group/head h-14 cursor-move transition-colors hover:bg-slate-800/30 ${draggedCharIndex === idx ? 'opacity-20' : ''}`}
               >
                 <div className="flex items-center justify-center gap-2">
                     <GripVertical size={14} className="text-slate-700 group-hover/head:text-blue-500" />
@@ -217,12 +238,14 @@ const TimelineVertical: React.FC<Props> = ({
             ))}
           </div>
 
+          {/* Grid Content */}
           <div className="flex">
+            {/* Left Axis - Sticky Column */}
             <div 
               style={{ width: `${LEFT_SECTION_WIDTH}px` }}
-              className="sticky left-0 z-40 bg-slate-900/95 border-r border-slate-800 flex shrink-0"
+              className="sticky left-0 z-[50] bg-[#0f172a]/95 border-r border-slate-800 flex shrink-0"
             >
-                <div className="w-20 shrink-0 relative bg-slate-950/20">
+                <div className="w-20 shrink-0 relative bg-slate-950/40">
                     {periods.map(p => (
                         <div 
                             key={p.id}
@@ -232,41 +255,35 @@ const TimelineVertical: React.FC<Props> = ({
                                 backgroundColor: `${p.color || '#3b82f6'}15`,
                                 borderColor: p.color || '#3b82f6'
                             }}
-                            className="absolute left-1 right-1 border-l-2 rounded p-1 overflow-hidden group/p shadow-sm z-10"
+                            className="absolute left-1 right-1 border-l-2 rounded p-1 overflow-hidden group/p shadow-md z-10"
                         >
-                            <div className="text-[9px] font-bold text-slate-400 leading-tight line-clamp-3">
+                            <div className="text-[9px] font-bold text-slate-300 leading-tight line-clamp-3">
                                 {p.label}
                             </div>
                             <button 
                                 onClick={() => onUpdatePeriods(periods.filter(x => x.id !== p.id))}
-                                className="absolute top-0 right-0 p-0.5 opacity-0 group-hover/p:opacity-100 text-red-500 hover:bg-red-500/20 rounded"
+                                className="absolute top-0 right-0 p-0.5 opacity-0 group-hover/p:opacity-100 text-red-500 hover:bg-red-500/20 rounded transition-opacity"
                             >
                                 <X size={8}/>
                             </button>
                         </div>
                     ))}
                 </div>
-                <div className="flex-1 flex flex-col bg-slate-900/40 relative">
+                <div className="flex-1 flex flex-col bg-[#020617] relative">
                     {Array.from({ length: slotCount }).map((_, i) => (
                         <div 
                             key={i} 
                             style={{ height: `${SLOT_HEIGHT}px` }} 
-                            className={`flex flex-col items-center justify-center border-b border-slate-800/30 transition-colors hover:bg-slate-800/40 cursor-pointer relative group/slot ${selectionStart === i ? 'bg-blue-600/20 ring-1 ring-blue-500/50 shadow-inner' : ''}`}
-                            onClick={() => {
-                                if (selectionStart === null) setSelectionStart(i);
-                                else {
-                                    const start = Math.min(selectionStart, i);
-                                    const end = Math.max(selectionStart, i) + 1;
-                                    setSelectionStart(null);
-                                    setEditingSeg({ startSlot: start, endSlot: end } as any);
-                                    setIsPeriodModalOpen(true);
-                                }
-                            }}
+                            className={`flex flex-col items-center justify-center border-b border-slate-800/30 transition-all hover:bg-slate-800/40 cursor-pointer relative group/slot 
+                                ${selectionStart === i ? 'bg-amber-600/20 ring-1 ring-amber-500/50 shadow-inner' : ''}
+                                ${showGuide ? 'hover:ring-1 hover:ring-amber-500/30' : ''}
+                            `}
+                            onClick={() => handleSlotClick(i)}
                         >
-                            <span className={`text-[10px] font-mono font-black transition-colors ${selectionStart === i ? 'text-blue-400' : 'text-slate-600 group-hover/slot:text-slate-400'}`}>G{i+1}</span>
+                            <span className={`text-[10px] font-mono font-black transition-colors ${selectionStart === i ? 'text-amber-400' : 'text-slate-600 group-hover/slot:text-slate-400'}`}>G{i+1}</span>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onInsertSlot(i); }}
-                                className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 p-1.5 bg-blue-600 rounded-full text-white opacity-0 group-hover/slot:opacity-100 hover:scale-110 transition-all z-50 shadow-lg border border-white/10"
+                                className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 p-1.5 bg-blue-600 rounded-full text-white opacity-0 group-hover/slot:opacity-100 hover:scale-110 transition-all z-[80] shadow-lg border border-white/10"
                             >
                                 <Plus size={10} />
                             </button>
@@ -275,22 +292,23 @@ const TimelineVertical: React.FC<Props> = ({
                 </div>
             </div>
 
+            {/* Character Columns - Main Track */}
             <div className="flex">
               {activeCharacters.map(char => (
                 <div 
                   key={char.id} 
                   style={{ width: `${CHAR_COLUMN_WIDTH}px` }}
-                  className="shrink-0 border-r border-slate-900/30 relative"
+                  className="shrink-0 border-r border-slate-800/30 relative bg-slate-950/20"
                   onDoubleClick={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const y = e.clientY - rect.top;
-                    const slotIdx = Math.floor(y / SLOT_HEIGHT);
+                    const y = e.clientY - (rect.top + window.scrollY); // Adjusted for absolute positioning
+                    const slotIdx = Math.floor((e.nativeEvent.offsetY) / SLOT_HEIGHT);
                     handleOpenAdd(char.id, slotIdx);
                   }}
                 >
                   <div className="absolute inset-0 pointer-events-none">
                     {Array.from({ length: slotCount }).map((_, i) => (
-                      <div key={i} style={{ height: `${SLOT_HEIGHT}px` }} className="border-b border-slate-900/30" />
+                      <div key={i} style={{ height: `${SLOT_HEIGHT}px` }} className="border-b border-slate-800/20" />
                     ))}
                   </div>
 
@@ -303,21 +321,21 @@ const TimelineVertical: React.FC<Props> = ({
                         style={{ 
                           top: `${top + 6}px`, 
                           height: `${height - 12}px`,
-                          backgroundColor: `${seg.color}15`,
+                          backgroundColor: `${seg.color}20`,
                           borderColor: seg.color
                         }}
-                        className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-3 overflow-hidden flex flex-col justify-center border border-slate-700/30 backdrop-blur-sm"
+                        className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-3 overflow-hidden flex flex-col justify-center border border-slate-700/50 backdrop-blur-sm"
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex flex-col gap-0.5 min-w-0">
-                              <span className="text-[11px] font-black text-white/90 truncate flex items-center gap-1.5">
+                              <span className="text-[11px] font-black text-white truncate flex items-center gap-1.5">
                                 <MapPin size={12} style={{ color: seg.color }} /> {seg.locationName}
                               </span>
                               {(seg.timeLabel || seg.relatedTimePointId) && (
-                                <div className="text-[9px] font-mono text-slate-400 flex flex-wrap gap-2 items-center">
-                                  {seg.timeLabel && <div className="flex items-center gap-1"><Clock size={10} /> {seg.timeLabel}</div>}
+                                <div className="text-[9px] font-mono text-slate-400 flex flex-wrap gap-2 items-center mt-1">
+                                  {seg.timeLabel && <div className="flex items-center gap-1 bg-black/30 px-1 rounded"><Clock size={10} /> {seg.timeLabel}</div>}
                                   {seg.relatedTimePointId && (
-                                    <div className="flex items-center gap-1 text-blue-400">
+                                    <div className="flex items-center gap-1 text-blue-400 bg-blue-900/20 px-1 rounded border border-blue-500/20">
                                       <LinkIcon size={10} /> {timePoints.find(t => t.id === seg.relatedTimePointId)?.label}
                                     </div>
                                   )}
@@ -337,7 +355,7 @@ const TimelineVertical: React.FC<Props> = ({
       </div>
 
       {isModalOpen && editingSeg && (
-        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
               <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />轨迹实录</h3>
@@ -398,6 +416,22 @@ const TimelineVertical: React.FC<Props> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {isPeriodModalOpen && (
+          <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
+                  <h3 className="text-lg font-black text-white mb-4 uppercase tracking-widest text-center flex items-center justify-center gap-2">
+                    <Calendar className="text-amber-500" /> 备注时间段
+                  </h3>
+                  <p className="text-[10px] text-slate-500 text-center mb-6 font-bold uppercase tracking-tighter">当前跨度: G{(editingSeg?.startSlot || 0) + 1} - G{editingSeg?.endSlot}</p>
+                  <input autoFocus value={newPeriodLabel} onChange={(e) => setNewPeriodLabel(e.target.value)} placeholder="如: 第一起命案发生前..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-white mb-6 focus:ring-2 focus:ring-amber-500 outline-none shadow-inner" onKeyDown={(e) => e.key === 'Enter' && handleSavePeriod()} />
+                  <div className="flex gap-3">
+                      <button onClick={() => { setIsPeriodModalOpen(false); setSelectionStart(null); }} className="flex-1 py-3 text-sm text-slate-400 font-bold border border-slate-700 rounded-xl hover:bg-slate-700 transition-colors">取消</button>
+                      <button onClick={handleSavePeriod} className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-black shadow-lg shadow-amber-900/20 active:scale-95 transition-all">确认保存</button>
+                  </div>
+              </div>
+          </div>
       )}
     </div>
   );
