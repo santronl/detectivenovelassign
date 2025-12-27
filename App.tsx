@@ -206,6 +206,35 @@ const App: React.FC = () => {
     setStatusMessage("已在 G" + (index+1) + " 后插入新格子");
   };
 
+  const handleDeleteSlot = (index: number) => {
+    setState(prev => ({
+        ...prev,
+        timelineSlotCount: Math.max(1, prev.timelineSlotCount - 1),
+        timelineSegments: prev.timelineSegments
+            .map(s => {
+                const newStart = s.startSlot > index ? s.startSlot - 1 : s.startSlot;
+                const newEnd = s.endSlot > index ? s.endSlot > index ? s.endSlot - 1 : s.endSlot : s.endSlot;
+                // 更精确的逻辑：如果删除的格在范围内
+                let start = s.startSlot;
+                let end = s.endSlot;
+                if (start > index) start--;
+                if (end > index) end--;
+                return { ...s, startSlot: start, endSlot: end };
+            })
+            .filter(s => s.startSlot < s.endSlot),
+        timelinePeriods: prev.timelinePeriods
+            .map(p => {
+                let start = p.startSlot;
+                let end = p.endSlot;
+                if (start > index) start--;
+                if (end > index) end--;
+                return { ...p, startSlot: start, endSlot: end };
+            })
+            .filter(p => p.startSlot < p.endSlot)
+    }));
+    setStatusMessage("已删除时间格 G" + (index+1));
+  };
+
   const updateGroupColor = (groupId: string, color: string) => {
     setState(p => ({
       ...p,
@@ -515,7 +544,7 @@ const App: React.FC = () => {
               </div>
             )}
             {activeTab === 'map' && <MapCanvas maps={state.maps} currentMapId={state.currentMapId} spaces={state.spaces} clues={state.clues} alibis={state.alibis} timePoints={state.timePoints} currentTimeId={state.currentTimeId} timelineData={state.timelineData} itemTimelineData={state.itemTimelineData} characters={state.characters} blobUrls={blobUrls} onUpdateMaps={m => setState(prev => ({ ...prev, maps: m }))} onDeleteMap={id => setState(prev => ({ ...prev, maps: prev.maps.filter(m => m.id !== id) }))} onCreateMap={n => setState(p => ({ ...p, maps: [...p.maps, { id: crypto.randomUUID(), name: n }], currentMapId: p.maps[p.maps.length-1].id }))} onSelectMap={id => setState(prev => ({ ...prev, currentMapId: id }))} onUpdateSpaces={s => setState(prev => ({ ...prev, spaces: s }))} onUpdateTimePoints={pts => setState(prev => ({ ...prev, timePoints: pts }))} onSelectTime={id => setState(prev => ({ ...prev, currentTimeId: id }))} onUpdatePlacements={(tid, pl) => setState(prev => ({ ...prev, timelineData: { ...prev.timelineData, [tid]: pl } }))} onUpdateItemPlacements={(tid, pl) => setState(prev => ({ ...prev, itemTimelineData: { ...prev.itemTimelineData, [tid]: pl } }))} onAddClue={c => setState(p => ({ ...p, clues: p.clues.some(x => x.id === c.id) ? p.clues.map(x => x.id === c.id ? c : x) : [...p.clues, c] }))} onOpenClueModal={c => { setEditingClue(c); setIsClueModalOpen(true); }} onImageSave={handleEntityImageSave} />}
-            {activeTab === 'timeline' && <TimelineVertical characters={state.characters} segments={state.timelineSegments} periods={state.timelinePeriods} activeCharIds={state.timelineActiveCharIds} charOrder={state.timelineCharOrder} slotCount={state.timelineSlotCount} locations={state.locations} timePoints={state.timePoints} onAddSegment={s => setState(p => ({ ...p, timelineSegments: [...p.timelineSegments, s] }))} onRemoveSegment={id => setState(p => ({ ...p, timelineSegments: p.timelineSegments.filter(x => x.id !== id) }))} onUpdateActiveChars={ids => setState(p => ({ ...p, timelineActiveCharIds: ids }))} onUpdateSlotCount={c => setState(p => ({ ...p, timelineSlotCount: c }))} onUpdatePeriods={ps => setState(p => ({ ...p, timelinePeriods: ps }))} onUpdateCharOrder={o => setState(p => ({ ...p, timelineCharOrder: o }))} onInsertSlot={handleInsertSlot} />}
+            {activeTab === 'timeline' && <TimelineVertical characters={state.characters} segments={state.timelineSegments} periods={state.timelinePeriods} activeCharIds={state.timelineActiveCharIds} charOrder={state.timelineCharOrder} slotCount={state.timelineSlotCount} locations={state.locations} timePoints={state.timePoints} onAddSegment={s => setState(p => ({ ...p, timelineSegments: [...p.timelineSegments, s] }))} onRemoveSegment={id => setState(p => ({ ...p, timelineSegments: p.timelineSegments.filter(x => x.id !== id) }))} onUpdateActiveChars={ids => setState(p => ({ ...p, timelineActiveCharIds: ids }))} onUpdateSlotCount={c => setState(p => ({ ...p, timelineSlotCount: c }))} onUpdatePeriods={ps => setState(p => ({ ...p, timelinePeriods: ps }))} onUpdateCharOrder={o => setState(p => ({ ...p, timelineCharOrder: o }))} onInsertSlot={handleInsertSlot} onDeleteSlot={handleDeleteSlot} />}
           </div>
         </div>
       </main>

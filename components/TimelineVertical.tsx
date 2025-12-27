@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -19,6 +19,7 @@ interface Props {
   onUpdatePeriods: (periods: TimePeriodLabel[]) => void;
   onUpdateCharOrder: (order: string[]) => void;
   onInsertSlot: (index: number) => void;
+  onDeleteSlot: (index: number) => void;
 }
 
 const SLOT_HEIGHT = 64; 
@@ -41,7 +42,8 @@ const TimelineVertical: React.FC<Props> = ({
   onUpdateSlotCount,
   onUpdatePeriods,
   onUpdateCharOrder,
-  onInsertSlot
+  onInsertSlot,
+  onDeleteSlot
 }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSeg, setEditingSeg] = useState<Partial<TimelineSegment> | null>(null);
@@ -63,7 +65,7 @@ const TimelineVertical: React.FC<Props> = ({
   const handleOpenAdd = (charId?: string, slotIdx?: number) => {
     setEditingSeg({
       id: crypto.randomUUID(),
-      characterId: charId || activeCharIds[0] || '',
+      characterId: charId || activeCharIds[0] || (characters[0]?.id || ''),
       startSlot: slotIdx ?? 0,
       endSlot: (slotIdx ?? 0) + 1,
       locationName: '',
@@ -281,12 +283,22 @@ const TimelineVertical: React.FC<Props> = ({
                             onClick={() => handleSlotClick(i)}
                         >
                             <span className={`text-[10px] font-mono font-black transition-colors ${selectionStart === i ? 'text-amber-400' : 'text-slate-600 group-hover/slot:text-slate-400'}`}>G{i+1}</span>
-                            <button 
-                                onClick={(e) => { e.stopPropagation(); onInsertSlot(i); }}
-                                className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 p-1.5 bg-blue-600 rounded-full text-white opacity-0 group-hover/slot:opacity-100 hover:scale-110 transition-all z-[80] shadow-lg border border-white/10"
-                            >
-                                <Plus size={10} />
-                            </button>
+                            <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover/slot:opacity-100 transition-all z-[80]">
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onInsertSlot(i); }}
+                                    title="在此下方插入一格"
+                                    className="p-1 bg-blue-600 rounded text-white hover:scale-110 shadow border border-white/10"
+                                >
+                                    <Plus size={10} />
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onDeleteSlot(i); }}
+                                    title="删除此格"
+                                    className="p-1 bg-red-600 rounded text-white hover:scale-110 shadow border border-white/10"
+                                >
+                                    <Trash2 size={10} />
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -301,7 +313,6 @@ const TimelineVertical: React.FC<Props> = ({
                   className="shrink-0 border-r border-slate-800/30 relative bg-slate-950/20"
                   onDoubleClick={(e) => {
                     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const y = e.clientY - (rect.top + window.scrollY); // Adjusted for absolute positioning
                     const slotIdx = Math.floor((e.nativeEvent.offsetY) / SLOT_HEIGHT);
                     handleOpenAdd(char.id, slotIdx);
                   }}
@@ -362,6 +373,18 @@ const TimelineVertical: React.FC<Props> = ({
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={24}/></button>
             </div>
             <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+              
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users size={12}/> 执行角色</label>
+                <select 
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500 appearance-none"
+                  value={editingSeg.characterId}
+                  onChange={(e) => setEditingSeg({ ...editingSeg, characterId: e.target.value })}
+                >
+                  {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">起始格 (G)</label>
@@ -374,10 +397,10 @@ const TimelineVertical: React.FC<Props> = ({
               </div>
 
               <div className="space-y-2">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><MapPin size={12}/> 案发地点</label>
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><MapPin size={12}/> 所在地点</label>
                 <div className="flex gap-2">
                   <select 
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500 appearance-none"
                     value={editingSeg.locationName}
                     onChange={(e) => setEditingSeg({ ...editingSeg, locationName: e.target.value })}
                   >
@@ -396,7 +419,7 @@ const TimelineVertical: React.FC<Props> = ({
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><MapIcon size={12}/> 关联空间轨迹点</label>
                 <select 
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500 appearance-none"
                   value={editingSeg.relatedTimePointId || ''}
                   onChange={(e) => setEditingSeg({ ...editingSeg, relatedTimePointId: e.target.value })}
                 >
