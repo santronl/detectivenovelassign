@@ -15,7 +15,7 @@ interface Props {
   onAddRelationship: (source: string, target: string, relation: string) => void;
   onRemoveRelationship: (source: string, target: string, relation: string) => void;
   onUpdateDefs: (defs: RelationshipDef[]) => void;
-  onNodeDrop: (id: string, type: 'character' | 'clue') => void;
+  onNodeDrop: (id: string, type: 'character' | 'clue', x: number, y: number) => void;
   onUpdateLayout: (layout: Record<string, { x: number; y: number }>) => void;
   onRemoveNode: (id: string, type: 'character' | 'clue') => void; 
   onAddGroup: (group: CharacterGroup) => void;
@@ -139,13 +139,22 @@ const RelationshipGraph: React.FC<Props> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
+    
+    if (!containerRef.current || !svgRef.current) return;
+
+    // 获取放置位置的世界坐标（考虑缩放和偏移）
+    const rect = containerRef.current.getBoundingClientRect();
+    const transform = d3.zoomTransform(svgRef.current);
+    const dropX = (e.clientX - rect.left - transform.x) / transform.k;
+    const dropY = (e.clientY - rect.top - transform.y) / transform.k;
+
     const charId = e.dataTransfer.getData("application/react-dnd-char-id");
     const clueId = e.dataTransfer.getData("application/react-dnd-clue-id");
     
     if (charId) {
-        onNodeDrop(charId, 'character');
+        onNodeDrop(charId, 'character', dropX, dropY);
     } else if (clueId && viewMode === 'items') {
-        onNodeDrop(clueId, 'clue');
+        onNodeDrop(clueId, 'clue', dropX, dropY);
     }
   };
 

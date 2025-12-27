@@ -212,9 +212,6 @@ const App: React.FC = () => {
         timelineSlotCount: Math.max(1, prev.timelineSlotCount - 1),
         timelineSegments: prev.timelineSegments
             .map(s => {
-                const newStart = s.startSlot > index ? s.startSlot - 1 : s.startSlot;
-                const newEnd = s.endSlot > index ? s.endSlot > index ? s.endSlot - 1 : s.endSlot : s.endSlot;
-                // 更精确的逻辑：如果删除的格在范围内
                 let start = s.startSlot;
                 let end = s.endSlot;
                 if (start > index) start--;
@@ -499,18 +496,21 @@ const App: React.FC = () => {
                     return { ...prev, [targetField]: prev[targetField].filter(x => !(x.source === s && x.target === t && x.relation === r)) };
                   })} 
                   onUpdateDefs={defs => setState(prev => ({ ...prev, relationshipDefs: defs }))} 
-                  onNodeDrop={(id, type) => {
+                  onNodeDrop={(id, type, x, y) => {
                     setState(prev => {
-                        if (prev.graphSubTab === 'people') {
-                            if (type === 'character' && !prev.graphActiveCharacterIds.includes(id)) {
-                                return { ...prev, graphActiveCharacterIds: [...prev.graphActiveCharacterIds, id] };
-                            }
-                        } else {
-                            if (!prev.itemGraphActiveIds.includes(id)) {
-                                return { ...prev, itemGraphActiveIds: [...prev.itemGraphActiveIds, id] };
-                            }
-                        }
-                        return prev;
+                        const isPeopleMode = prev.graphSubTab === 'people';
+                        const layoutField = isPeopleMode ? 'graphLayout' : 'itemGraphLayout';
+                        const activeField = isPeopleMode ? 'graphActiveCharacterIds' : 'itemGraphActiveIds';
+                        
+                        const newLayout = { ...prev[layoutField], [id]: { x, y } };
+                        const currentActive = prev[activeField] as string[];
+                        const newActive = currentActive.includes(id) ? currentActive : [...currentActive, id];
+
+                        return { 
+                          ...prev, 
+                          [layoutField]: newLayout,
+                          [activeField]: newActive
+                        };
                     });
                   }} 
                   onUpdateLayout={lay => setState(prev => ({ ...prev, [prev.graphSubTab === 'people' ? 'graphLayout' : 'itemGraphLayout']: { ...prev[prev.graphSubTab === 'people' ? 'graphLayout' : 'itemGraphLayout'], ...lay } }))} 
