@@ -1,10 +1,24 @@
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 
+// Polyfill for Trusted Types to prevent "This document requires 'TrustedHTML' assignment" error
+// This is often triggered by browser extensions or strict CSPs in environments like AI Studio.
+// Added type casting to (window as any) to resolve TypeScript property missing errors
+if ((window as any).trustedTypes && (window as any).trustedTypes.createPolicy) {
+  try {
+    (window as any).trustedTypes.createPolicy('default', {
+      createHTML: (string: string) => string,
+      createScript: (string: string) => string,
+      createScriptURL: (string: string) => string,
+    });
+  } catch (e) {
+    console.warn("TrustedTypes policy could not be created:", e);
+  }
+}
+
 // Polyfill for crypto.randomUUID
-// This is required because crypto.randomUUID is only available in Secure Contexts (HTTPS/localhost).
-// When opening dist/index.html via file:// or plain http://, it might be undefined, causing a crash.
 if (typeof crypto === 'undefined') {
   (window as any).crypto = {};
 }

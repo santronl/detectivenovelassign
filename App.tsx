@@ -41,7 +41,9 @@ import {
   User,
   FileArchive,
   LogOut,
-  Clock
+  Clock,
+  Layers,
+  ChevronRight
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -199,6 +201,65 @@ const App: React.FC = () => {
     setStatusMessage("已在 G" + (index+1) + " 后插入新格子");
   };
 
+  // 渲染人物卡片的辅助函数
+  const renderCharacterCard = (char: Character) => {
+    const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
+    const charGroups = state.characterGroups.filter(g => g.characterIds.includes(char.id));
+    // 取得首选分组作为背景染色依据
+    const primaryGroup = charGroups[0];
+
+    return (
+      <div 
+        key={char.id} 
+        draggable 
+        onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)} 
+        style={{ 
+          borderLeft: primaryGroup ? `5px solid ${primaryGroup.color}` : '5px solid transparent',
+          backgroundColor: primaryGroup ? `${primaryGroup.color}15` : 'rgb(51 65 85 / 0.5)' 
+        }}
+        className={`flex items-start justify-between p-3 rounded-r-xl border-y border-r border-slate-700 hover:border-slate-500 transition-all group cursor-grab active:cursor-grabbing shadow-sm ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 grayscale-[0.5]' : ''}`}
+      >
+        <div className="flex items-start gap-3 truncate flex-1">
+          <GripVertical size={14} className="text-slate-600 shrink-0 mt-1" />
+          {portraitUrl ? (
+            <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-slate-600 bg-slate-900 shrink-0 shadow-md">
+              <img src={portraitUrl} className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border-2 border-slate-700 shadow-md">
+              <User size={16} />
+            </div>
+          )}
+          <div className="flex flex-col truncate min-w-0 pt-0.5">
+            <span className="text-sm font-black text-blue-100 truncate tracking-tight">{char.name}</span>
+            {(char.note || char.raw_info) && (
+              <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">
+                {char.note || char.raw_info}
+              </span>
+            )}
+            {charGroups.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {charGroups.map(group => (
+                  <div 
+                    key={group.id} 
+                    style={{ backgroundColor: `${group.color}25`, borderColor: `${group.color}60`, color: group.color }}
+                    className="px-1.5 py-0.5 rounded-md text-[8px] font-black border flex items-center gap-0.5 shadow-sm"
+                  >
+                    <Layers size={8} /> {group.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => setEditingCharacter(char)} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-700 rounded-lg transition-colors"><Info size={14}/></button>
+          <button onClick={() => setCharacterToDelete(char)} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"><Trash2 size={14}/></button>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans selection:bg-blue-500/30">
       <header className="border-b border-slate-700 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
@@ -233,24 +294,56 @@ const App: React.FC = () => {
             <div className="mt-4"><button onClick={() => { const ns = parseCharacterList(inputText); if(ns.length) setState(p=>({...p, characters: [...p.characters, ...ns]})); setInputText(''); setStatusMessage("已解析"); }} className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all border border-slate-600 shadow-md"><Users size={16} /> 简单提取</button></div>
           </div>
 
-          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col h-[500px]">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col h-[600px]">
             <div className="bg-slate-900/50 border-b border-slate-700 flex">
               <button onClick={() => setSidebarTab('characters')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'characters' ? 'text-purple-400 bg-slate-800 border-b-2 border-purple-500' : 'text-slate-500 hover:text-slate-300'}`}>登场人物 ({state.characters.length})</button>
               <button onClick={() => setSidebarTab('clues')} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}>证物清单 ({state.clues.length})</button>
             </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-              {sidebarTab === 'characters' ? (state.characters.map(char => {
-                  const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
-                  return (
-                    <div key={char.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)} className={`flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-slate-400 transition-colors group cursor-grab active:cursor-grabbing ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 border-blue-500/30' : ''}`}>
-                      <div className="flex items-center gap-3 truncate flex-1"><GripVertical size={14} className="text-slate-500 shrink-0" />
-                        {portraitUrl ? <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-600 bg-slate-900 shrink-0"><img src={portraitUrl} className="w-full h-full object-cover" /></div> : <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border border-slate-600"><User size={14} /></div>}
-                        <div className="flex flex-col truncate min-w-0"><span className="text-sm font-bold text-blue-300 truncate">{char.name}</span>{(char.note || char.raw_info) && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{char.note || char.raw_info}</span>}</div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-6">
+              {sidebarTab === 'characters' ? (
+                <>
+                  {/* 已分组人物按组别渲染 */}
+                  {state.characterGroups.map(group => {
+                    const groupMembers = state.characters.filter(c => group.characterIds.includes(c.id));
+                    if (groupMembers.length === 0) return null;
+                    return (
+                      <div key={group.id} className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-300">
+                        <div className="flex items-center gap-3 px-1">
+                          <div className="w-2.5 h-2.5 rounded-sm shadow-sm" style={{ backgroundColor: group.color }} />
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">{group.label}</span>
+                          <div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" />
+                        </div>
+                        <div className="space-y-2 pl-1">
+                          {groupMembers.map(char => renderCharacterCard(char))}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => setEditingCharacter(char)} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14}/></button><button onClick={() => setCharacterToDelete(char)} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14}/></button></div>
+                    );
+                  })}
+
+                  {/* 未分组人物渲染 */}
+                  {state.characters.filter(c => !state.characterGroups.some(g => g.characterIds.includes(c.id))).length > 0 && (
+                    <div className="space-y-3 pt-2">
+                      <div className="flex items-center gap-3 px-1">
+                        <div className="w-2.5 h-2.5 rounded-sm bg-slate-600 shadow-sm" />
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">待定阵营 / 其他人物</span>
+                        <div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" />
+                      </div>
+                      <div className="space-y-2 pl-1">
+                        {state.characters
+                          .filter(c => !state.characterGroups.some(g => g.characterIds.includes(c.id)))
+                          .map(char => renderCharacterCard(char))
+                        }
+                      </div>
                     </div>
-                  );
-                })) : (
+                  )}
+                  {state.characters.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-12 text-slate-600 italic">
+                      <Users size={40} strokeWidth={1} className="mb-2 opacity-20" />
+                      <p className="text-xs">等待数据导入...</p>
+                    </div>
+                  )}
+                </>
+              ) : (
                 <div className="space-y-2">
                   <button onClick={() => { setEditingClue(null); setIsClueModalOpen(true); }} className="w-full py-2 border-2 border-dashed border-slate-700 rounded-lg text-slate-500 hover:text-amber-400 hover:border-amber-500/50 hover:bg-amber-500/5 transition-all text-xs font-bold flex items-center justify-center gap-2 mb-2"><Plus size={14} /> 新增证物</button>
                   {state.clues.map(clue => (

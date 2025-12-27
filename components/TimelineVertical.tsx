@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -50,6 +50,7 @@ const TimelineVertical: React.FC<Props> = ({
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
   const [newPeriodLabel, setNewPeriodLabel] = useState("");
+  const [showGuide, setShowGuide] = useState(false);
 
   const sortedIds = [
     ...charOrder.filter(id => activeCharIds.includes(id)),
@@ -153,13 +154,22 @@ const TimelineVertical: React.FC<Props> = ({
           </div>
         </div>
         
-        <div className="flex gap-2">
+        <div className="flex gap-2 relative">
             <button 
-                onClick={() => { setSelectionStart(null); setIsPeriodModalOpen(false); }}
+                onClick={() => { setShowGuide(true); setTimeout(() => setShowGuide(false), 3000); }}
                 className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all"
             >
                 <Calendar size={16} /> 备注时间段
             </button>
+            {showGuide && (
+              <div className="absolute top-full mt-2 right-0 w-64 bg-blue-600 text-white p-3 rounded-xl shadow-2xl text-[10px] font-bold animate-in slide-in-from-top-2 z-[110]">
+                <div className="flex gap-2 items-start">
+                  <Info size={14} className="shrink-0" />
+                  <p>请在下方时间轴上依次点击两个轴格编号（如 G1 和 G5）来划定时间备注范围。</p>
+                </div>
+                <div className="absolute top-0 right-10 -translate-y-1/2 w-3 h-3 bg-blue-600 rotate-45"></div>
+              </div>
+            )}
             <button 
                 onClick={() => handleOpenAdd()}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-black shadow-lg shadow-blue-900/30 transition-all active:scale-95"
@@ -250,7 +260,7 @@ const TimelineVertical: React.FC<Props> = ({
                         <div 
                             key={i} 
                             style={{ height: `${SLOT_HEIGHT}px` }} 
-                            className={`flex flex-col items-center justify-center border-b border-slate-800/30 transition-colors hover:bg-slate-800/40 cursor-pointer relative group/slot ${selectionStart === i ? 'bg-blue-600/20 ring-1 ring-blue-500/50' : ''}`}
+                            className={`flex flex-col items-center justify-center border-b border-slate-800/30 transition-colors hover:bg-slate-800/40 cursor-pointer relative group/slot ${selectionStart === i ? 'bg-blue-600/20 ring-1 ring-blue-500/50 shadow-inner' : ''}`}
                             onClick={() => {
                                 if (selectionStart === null) setSelectionStart(i);
                                 else {
@@ -262,7 +272,7 @@ const TimelineVertical: React.FC<Props> = ({
                                 }
                             }}
                         >
-                            <span className="text-[10px] font-mono font-black text-slate-600 group-hover/slot:text-slate-400 transition-colors">G{i+1}</span>
+                            <span className={`text-[10px] font-mono font-black transition-colors ${selectionStart === i ? 'text-blue-400' : 'text-slate-600 group-hover/slot:text-slate-400'}`}>G{i+1}</span>
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onInsertSlot(i); }}
                                 className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 p-1.5 bg-blue-600 rounded-full text-white opacity-0 group-hover/slot:opacity-100 hover:scale-110 transition-all z-50 shadow-lg border border-white/10"
@@ -338,7 +348,7 @@ const TimelineVertical: React.FC<Props> = ({
       {/* 录入 Modal */}
       {isModalOpen && editingSeg && (
         <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden">
+          <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
               <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />轨迹实录</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={24}/></button>
@@ -347,11 +357,11 @@ const TimelineVertical: React.FC<Props> = ({
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">起始格 (G)</label>
-                  <input type="number" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none" value={(editingSeg.startSlot || 0) + 1} onChange={(e) => setEditingSeg({ ...editingSeg, startSlot: Math.max(0, parseInt(e.target.value) - 1 || 0) })} />
+                  <input type="number" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500" value={(editingSeg.startSlot || 0) + 1} onChange={(e) => setEditingSeg({ ...editingSeg, startSlot: Math.max(0, parseInt(e.target.value) - 1 || 0) })} />
                 </div>
                 <div className="space-y-2">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">终止格 (G)</label>
-                  <input type="number" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none" value={editingSeg.endSlot} onChange={(e) => setEditingSeg({ ...editingSeg, endSlot: parseInt(e.target.value) || 1 })} />
+                  <input type="number" className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500" value={editingSeg.endSlot} onChange={(e) => setEditingSeg({ ...editingSeg, endSlot: parseInt(e.target.value) || 1 })} />
                 </div>
               </div>
 
@@ -359,7 +369,7 @@ const TimelineVertical: React.FC<Props> = ({
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><MapPin size={12}/> 案发地点</label>
                 <div className="flex gap-2">
                   <select 
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none"
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
                     value={editingSeg.locationName}
                     onChange={(e) => setEditingSeg({ ...editingSeg, locationName: e.target.value })}
                   >
@@ -367,7 +377,7 @@ const TimelineVertical: React.FC<Props> = ({
                     {locations.map(l => <option key={l.id} value={l.name}>{l.name}</option>)}
                   </select>
                   <input 
-                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none"
+                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
                     placeholder="或手动录入..."
                     value={editingSeg.locationName}
                     onChange={(e) => setEditingSeg({ ...editingSeg, locationName: e.target.value })}
@@ -378,7 +388,7 @@ const TimelineVertical: React.FC<Props> = ({
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><MapIcon size={12}/> 关联空间轨迹点</label>
                 <select 
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500"
                   value={editingSeg.relatedTimePointId || ''}
                   onChange={(e) => setEditingSeg({ ...editingSeg, relatedTimePointId: e.target.value })}
                 >
@@ -390,11 +400,11 @@ const TimelineVertical: React.FC<Props> = ({
 
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">时间备注 (手动)</label>
-                <input className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none" placeholder="例如: 14:00" value={editingSeg.timeLabel} onChange={(e) => setEditingSeg({ ...editingSeg, timeLabel: e.target.value })} />
+                <input className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500" placeholder="例如: 14:00" value={editingSeg.timeLabel} onChange={(e) => setEditingSeg({ ...editingSeg, timeLabel: e.target.value })} />
               </div>
             </div>
             <div className="p-6 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/30">
-              <button onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-slate-400 hover:text-white text-sm font-bold">取消</button>
+              <button onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-slate-400 hover:text-white text-sm font-bold transition-colors">取消</button>
               <button onClick={handleSaveSegment} className="px-12 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-sm font-black shadow-xl transition-all active:scale-95">确认存入</button>
             </div>
           </div>
@@ -403,17 +413,20 @@ const TimelineVertical: React.FC<Props> = ({
 
       {/* 时间段备注 Modal */}
       {isPeriodModalOpen && (
-          <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200">
             <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-sm overflow-hidden">
                 <div className="p-5 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
                     <h3 className="font-bold text-white flex items-center gap-2"><Calendar size={18} className="text-blue-400"/> 时间阶段备注</h3>
                     <button onClick={() => setIsPeriodModalOpen(false)}><X size={20} className="text-slate-400"/></button>
                 </div>
                 <div className="p-6 space-y-4">
+                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
+                        范围: G{editingSeg?.startSlot ? editingSeg.startSlot + 1 : 1} - G{editingSeg?.endSlot || 1}
+                    </p>
                     <input autoFocus className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:ring-2 focus:ring-blue-500/50" placeholder="例如: 晚餐时间, 停电期间..." value={newPeriodLabel} onChange={(e) => setNewPeriodLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSavePeriod()} />
                 </div>
                 <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex justify-end gap-2">
-                    <button onClick={() => setIsPeriodModalOpen(false)} className="px-4 py-2 text-slate-400 text-sm font-bold">取消</button>
+                    <button onClick={() => setIsPeriodModalOpen(false)} className="px-4 py-2 text-slate-400 text-sm font-bold transition-colors">取消</button>
                     <button onClick={handleSavePeriod} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold shadow-lg transition-all active:scale-95">确认</button>
                 </div>
             </div>
