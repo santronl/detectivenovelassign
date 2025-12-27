@@ -43,7 +43,8 @@ import {
   LogOut,
   Clock,
   Layers,
-  ChevronRight
+  ChevronRight,
+  Settings2
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -68,6 +69,10 @@ const App: React.FC = () => {
   const isIframe = window.self !== window.top;
   const [fileHandle, setFileHandle] = useState<any | null>(null);
   const fileImportRef = useRef<HTMLInputElement>(null);
+
+  // 分组编辑状态
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [tempGroupName, setTempGroupName] = useState("");
 
   useEffect(() => {
     return () => { Object.keys(blobUrls).forEach(k => URL.revokeObjectURL(blobUrls[k])); };
@@ -201,6 +206,71 @@ const App: React.FC = () => {
     setStatusMessage("已在 G" + (index+1) + " 后插入新格子");
   };
 
+  const updateGroupColor = (groupId: string, color: string) => {
+    setState(p => ({
+      ...p,
+      characterGroups: p.characterGroups.map(g => g.id === groupId ? { ...g, color } : g)
+    }));
+  };
+
+  const updateGroupName = (groupId: string) => {
+    if (!tempGroupName.trim()) return;
+    setState(p => ({
+      ...p,
+      characterGroups: p.characterGroups.map(g => g.id === groupId ? { ...g, label: tempGroupName.trim() } : g)
+    }));
+    setEditingGroupId(null);
+  };
+
+  const renderGroupHeader = (group: CharacterGroup) => (
+    <div className="flex items-center gap-2 px-1 group/gh relative">
+      <div className="relative flex items-center justify-center w-3 h-3">
+        <input 
+          type="color" 
+          value={group.color} 
+          onChange={(e) => updateGroupColor(group.id, e.target.value)}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+        />
+        <div className="w-2.5 h-2.5 rounded-full shadow-sm" style={{ backgroundColor: group.color }} />
+      </div>
+      
+      {editingGroupId === group.id ? (
+        <input 
+          autoFocus
+          className="flex-1 bg-slate-900 border border-blue-500 rounded px-1.5 py-0.5 text-[9px] text-white outline-none"
+          value={tempGroupName}
+          onChange={e => setTempGroupName(e.target.value)}
+          onBlur={() => updateGroupName(group.id)}
+          onKeyDown={e => e.key === 'Enter' && updateGroupName(group.id)}
+        />
+      ) : (
+        <span 
+          onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.label); }}
+          className="text-[9px] font-black uppercase tracking-widest text-slate-400 truncate"
+        >
+          {group.label}
+        </span>
+      )}
+      
+      <div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" />
+      
+      <div className="flex items-center gap-1 opacity-0 group-hover/gh:opacity-100 transition-opacity">
+        <button 
+          onClick={() => { setEditingGroupId(group.id); setTempGroupName(group.label); }}
+          className="p-1 text-slate-500 hover:text-blue-400"
+        >
+          <Edit3 size={10} />
+        </button>
+        <button 
+          onClick={() => setState(p => ({ ...p, characterGroups: p.characterGroups.filter(g => g.id !== group.id) }))}
+          className="p-1 text-slate-500 hover:text-red-400"
+        >
+          <Trash2 size={10} />
+        </button>
+      </div>
+    </div>
+  );
+
   const renderCharacterCard = (char: Character) => {
     const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
     const charGroups = state.characterGroups.filter(g => g.characterIds.includes(char.id));
@@ -320,7 +390,7 @@ const App: React.FC = () => {
                     if (groupMembers.length === 0) return null;
                     return (
                       <div key={group.id} className="space-y-2 animate-in fade-in duration-300">
-                        <div className="flex items-center gap-2 px-1"><div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: group.color }} /><span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{group.label}</span><div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" /></div>
+                        {renderGroupHeader(group)}
                         <div className="space-y-1.5 pl-1">{groupMembers.map(char => renderCharacterCard(char))}</div>
                       </div>
                     );
@@ -341,7 +411,7 @@ const App: React.FC = () => {
                     if (groupClues.length === 0) return null;
                     return (
                       <div key={group.id} className="space-y-2 animate-in fade-in duration-300 mb-4">
-                        <div className="flex items-center gap-2 px-1"><div className="w-2 h-2 rounded-full shadow-sm" style={{ backgroundColor: group.color }} /><span className="text-[9px] font-black uppercase tracking-widest text-slate-400">{group.label}</span><div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" /></div>
+                        {renderGroupHeader(group)}
                         <div className="space-y-1.5 pl-1">{groupClues.map(clue => renderClueCard(clue))}</div>
                       </div>
                     );
@@ -440,7 +510,7 @@ const App: React.FC = () => {
                     ))}
                 </div>
                 {evidenceSubTab === 'clues' && <EvidenceBoard clues={state.clues} locations={state.locations} blobUrls={blobUrls} onOpenModal={(clue) => { setEditingClue(clue); setIsClueModalOpen(true); }} onUpdateStatus={(id, s) => setState(p => ({ ...p, clues: p.clues.map(c => c.id === id ? { ...c, status: s } : c) }))} onDeleteClue={setClueToDeleteId} />}
-                {evidenceSubTab === 'alibis' && <AlibiMatrix alibis={state.alibis} characters={state.characters} timePoints={state.timePoints} locations={state.locations} onAddAlibi={a => setState(p => ({ ...p, alibis: [...p.alibis, a] }))} onUpdateAlibi={(u, i) => setState(p => { const na = [...p.alibis]; na[i] = u; return { ...p, alibis: na }; })} onDeleteAlibi={i => setState(p => ({ ...p, alibis: p.alibis.filter((_, idx) => idx !== i) }))} />}
+                {evidenceSubTab === 'alibis' && <AlibiMatrix alibis={state.alibis} characters={state.characters} timePoints={state.timePoints} locations={state.locations} onAddAlibi={a => setState(p => ({ ...p, alibis: [...p.alibis, a] }))} onUpdateAlibi={(u, i) => setState(p => { const na = [...p.alibis]; na[i] = u; return { ...p, alibis: na }; })} onDeleteAlibi={i => setState(p => { const na = [...p.alibis]; return { ...p, alibis: na.filter((_, idx) => idx !== i) }; })} />}
                 {evidenceSubTab === 'locations' && <LocationList locations={state.locations} maps={state.maps} spaces={state.spaces} clues={state.clues} blobUrls={blobUrls} onAddLocation={l => setState(p => ({ ...p, locations: [...p.locations, l] }))} onUpdateLocation={l => setState(p => ({ ...p, locations: p.locations.map(x => x.id === l.id ? l : x) }))} onDeleteLocation={id => setState(p => ({ ...p, locations: p.locations.filter(x => x.id !== id) }))} onImageSave={handleEntityImageSave} />}
               </div>
             )}
