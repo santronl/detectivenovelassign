@@ -201,52 +201,30 @@ const App: React.FC = () => {
     setStatusMessage("已在 G" + (index+1) + " 后插入新格子");
   };
 
-  // 渲染人物卡片的辅助函数
   const renderCharacterCard = (char: Character) => {
     const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
     const charGroups = state.characterGroups.filter(g => g.characterIds.includes(char.id));
-    // 取得首选分组作为背景染色依据
     const primaryGroup = charGroups[0];
+    const isCurrentlyActive = state.graphSubTab === 'people' ? state.graphActiveCharacterIds.includes(char.id) : state.itemGraphActiveIds.includes(char.id);
 
     return (
-      <div 
-        key={char.id} 
-        draggable 
-        onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)} 
-        style={{ 
-          borderLeft: primaryGroup ? `5px solid ${primaryGroup.color}` : '5px solid transparent',
-          backgroundColor: primaryGroup ? `${primaryGroup.color}15` : 'rgb(51 65 85 / 0.5)' 
-        }}
-        className={`flex items-start justify-between p-3 rounded-r-xl border-y border-r border-slate-700 hover:border-slate-500 transition-all group cursor-grab active:cursor-grabbing shadow-sm ${state.graphActiveCharacterIds.includes(char.id) ? 'opacity-40 grayscale-[0.5]' : ''}`}
-      >
+      <div key={char.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-char-id", char.id)} style={{ borderLeft: primaryGroup ? `5px solid ${primaryGroup.color}` : '5px solid transparent', backgroundColor: primaryGroup ? `${primaryGroup.color}15` : 'rgb(51 65 85 / 0.5)' }} className={`flex items-start justify-between p-3 rounded-r-xl border-y border-r border-slate-700 hover:border-slate-500 transition-all group cursor-grab active:cursor-grabbing shadow-sm ${isCurrentlyActive ? 'opacity-40 grayscale-[0.5]' : ''}`}>
         <div className="flex items-start gap-3 truncate flex-1">
           <GripVertical size={14} className="text-slate-600 shrink-0 mt-1" />
           {portraitUrl ? (
-            <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-slate-600 bg-slate-900 shrink-0 shadow-md">
-              <img src={portraitUrl} className="w-full h-full object-cover" />
-            </div>
+            <div className="w-9 h-9 rounded-full overflow-hidden border-2 border-slate-600 bg-slate-900 shrink-0 shadow-md"><img src={portraitUrl} className="w-full h-full object-cover" /></div>
           ) : (
-            <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border-2 border-slate-700 shadow-md">
-              <User size={16} />
-            </div>
+            <div className="w-9 h-9 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border-2 border-slate-700 shadow-md"><User size={16} /></div>
           )}
           <div className="flex flex-col truncate min-w-0 pt-0.5">
             <span className="text-sm font-black text-blue-100 truncate tracking-tight">{char.name}</span>
             {(char.note || char.raw_info) && (
-              <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">
-                {char.note || char.raw_info}
-              </span>
+              <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{char.note || char.raw_info}</span>
             )}
             {charGroups.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
                 {charGroups.map(group => (
-                  <div 
-                    key={group.id} 
-                    style={{ backgroundColor: `${group.color}25`, borderColor: `${group.color}60`, color: group.color }}
-                    className="px-1.5 py-0.5 rounded-md text-[8px] font-black border flex items-center gap-0.5 shadow-sm"
-                  >
-                    <Layers size={8} /> {group.label}
-                  </div>
+                  <div key={group.id} style={{ backgroundColor: `${group.color}25`, borderColor: `${group.color}60`, color: group.color }} className="px-1.5 py-0.5 rounded-md text-[8px] font-black border flex items-center gap-0.5 shadow-sm"><Layers size={8} /> {group.label}</div>
                 ))}
               </div>
             )}
@@ -302,44 +280,20 @@ const App: React.FC = () => {
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-6">
               {sidebarTab === 'characters' ? (
                 <>
-                  {/* 已分组人物按组别渲染 */}
                   {state.characterGroups.map(group => {
                     const groupMembers = state.characters.filter(c => group.characterIds.includes(c.id));
                     if (groupMembers.length === 0) return null;
                     return (
                       <div key={group.id} className="space-y-3 animate-in fade-in slide-in-from-top-1 duration-300">
-                        <div className="flex items-center gap-3 px-1">
-                          <div className="w-2.5 h-2.5 rounded-sm shadow-sm" style={{ backgroundColor: group.color }} />
-                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">{group.label}</span>
-                          <div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" />
-                        </div>
-                        <div className="space-y-2 pl-1">
-                          {groupMembers.map(char => renderCharacterCard(char))}
-                        </div>
+                        <div className="flex items-center gap-3 px-1"><div className="w-2.5 h-2.5 rounded-sm shadow-sm" style={{ backgroundColor: group.color }} /><span className="text-[10px] font-black uppercase tracking-widest text-slate-300">{group.label}</span><div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" /></div>
+                        <div className="space-y-2 pl-1">{groupMembers.map(char => renderCharacterCard(char))}</div>
                       </div>
                     );
                   })}
-
-                  {/* 未分组人物渲染 */}
                   {state.characters.filter(c => !state.characterGroups.some(g => g.characterIds.includes(c.id))).length > 0 && (
                     <div className="space-y-3 pt-2">
-                      <div className="flex items-center gap-3 px-1">
-                        <div className="w-2.5 h-2.5 rounded-sm bg-slate-600 shadow-sm" />
-                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">待定阵营 / 其他人物</span>
-                        <div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" />
-                      </div>
-                      <div className="space-y-2 pl-1">
-                        {state.characters
-                          .filter(c => !state.characterGroups.some(g => g.characterIds.includes(c.id)))
-                          .map(char => renderCharacterCard(char))
-                        }
-                      </div>
-                    </div>
-                  )}
-                  {state.characters.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-12 text-slate-600 italic">
-                      <Users size={40} strokeWidth={1} className="mb-2 opacity-20" />
-                      <p className="text-xs">等待数据导入...</p>
+                      <div className="flex items-center gap-3 px-1"><div className="w-2.5 h-2.5 rounded-sm bg-slate-600 shadow-sm" /><span className="text-[10px] font-black uppercase tracking-widest text-slate-500">待定阵营</span><div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" /></div>
+                      <div className="space-y-2 pl-1">{state.characters.filter(c => !state.characterGroups.some(g => g.characterIds.includes(c.id))).map(char => renderCharacterCard(char))}</div>
                     </div>
                   )}
                 </>
@@ -347,7 +301,7 @@ const App: React.FC = () => {
                 <div className="space-y-2">
                   <button onClick={() => { setEditingClue(null); setIsClueModalOpen(true); }} className="w-full py-2 border-2 border-dashed border-slate-700 rounded-lg text-slate-500 hover:text-amber-400 hover:border-amber-500/50 hover:bg-amber-500/5 transition-all text-xs font-bold flex items-center justify-center gap-2 mb-2"><Plus size={14} /> 新增证物</button>
                   {state.clues.map(clue => (
-                      <div key={clue.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-clue-id", clue.id)} className="flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-amber-500/50 transition-colors group cursor-grab active:cursor-grabbing">
+                      <div key={clue.id} draggable onDragStart={(e) => e.dataTransfer.setData("application/react-dnd-clue-id", clue.id)} className={`flex items-center justify-between p-3 rounded bg-slate-700/50 border border-slate-600/50 hover:border-amber-500/50 transition-colors group cursor-grab active:cursor-grabbing ${state.itemGraphActiveIds.includes(clue.id) ? 'opacity-40' : ''}`}>
                         <div className="flex items-center gap-3 truncate flex-1">{clue.imageId ? <div className="w-8 h-8 rounded border border-slate-600 overflow-hidden shrink-0"><img src={blobUrls[clue.imageId]} className="w-full h-full object-cover" /></div> : <Package size={14} className="text-amber-500 shrink-0" />}<div className="flex flex-col truncate min-w-0"><span className="text-sm font-bold text-amber-200 truncate">{clue.name}</span>{clue.description && <span className="text-[10px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{clue.description}</span>}</div></div>
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><button onClick={() => { setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-slate-600 rounded transition-colors"><Info size={14} /></button><button onClick={() => setClueToDeleteId(clue.id)} className="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-600 rounded transition-colors"><Trash2 size={14}/></button></div>
                       </div>
@@ -366,7 +320,73 @@ const App: React.FC = () => {
           </div>
 
           <div className="min-h-[600px]">
-            {activeTab === 'graph' && <RelationshipGraph characters={state.characters.filter(c => state.graphActiveCharacterIds.includes(c.id))} relationships={state.relationships} relationshipDefs={state.relationshipDefs} characterGroups={state.characterGroups} layout={state.graphLayout} onAddRelationship={(s, t, r) => setState(prev => { const exists = prev.relationships.findIndex(x => (x.source === s && x.target === t) || (x.source === t && x.target === s)); const newRels = [...prev.relationships]; if (exists > -1) newRels[exists] = { ...newRels[exists], relation: r }; else newRels.push({ source: s, target: t, relation: r }); return { ...prev, relationships: newRels }; })} onRemoveRelationship={(s, t) => setState(prev => ({ ...prev, relationships: prev.relationships.filter(r => !((r.source === s && r.target === t) || (r.source === t && r.target === s))) }))} onUpdateDefs={defs => setState(prev => ({ ...prev, relationshipDefs: defs }))} onNodeDrop={id => !state.graphActiveCharacterIds.includes(id) && setState(prev => ({ ...prev, graphActiveCharacterIds: [...prev.graphActiveCharacterIds, id] }))} onUpdateLayout={lay => setState(prev => ({ ...prev, graphLayout: { ...prev.graphLayout, ...lay } }))} onRemoveNode={id => setState(prev => ({ ...prev, graphActiveCharacterIds: prev.graphActiveCharacterIds.filter(cid => cid !== id), relationships: prev.relationships.filter(r => r.source !== id && r.target !== id), characterGroups: prev.characterGroups.map(g => ({ ...g, characterIds: g.characterIds.filter(m => m !== id) })).filter(g => g.characterIds.length > 0) }))} onAddGroup={g => setState(p => ({ ...p, characterGroups: [...p.characterGroups, g] }))} onUpdateGroup={g => setState(p => ({ ...p, characterGroups: p.characterGroups.map(i => i.id === g.id ? g : i) }))} onRemoveGroup={id => setState(p => ({ ...p, characterGroups: p.characterGroups.filter(g => g.id !== id) }))} />}
+            {activeTab === 'graph' && (
+              <div className="flex flex-col h-full space-y-4">
+                <div className="flex items-center gap-1 bg-slate-800/50 p-1 rounded-2xl border border-slate-700 w-fit">
+                    <button onClick={() => setState(p => ({...p, graphSubTab: 'people'}))} className={`px-6 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${state.graphSubTab === 'people' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Users size={14}/> 人物关系图</button>
+                    <button onClick={() => setState(p => ({...p, graphSubTab: 'items'}))} className={`px-6 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 ${state.graphSubTab === 'items' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}><Package size={14}/> 物证逻辑链</button>
+                </div>
+                
+                <RelationshipGraph 
+                  viewMode={state.graphSubTab}
+                  // 数据源分离控制
+                  characters={state.characters.filter(c => state.graphSubTab === 'people' ? state.graphActiveCharacterIds.includes(c.id) : state.itemGraphActiveIds.includes(c.id))} 
+                  clues={state.graphSubTab === 'items' ? state.clues.filter(c => state.itemGraphActiveIds.includes(c.id)) : []}
+                  relationships={state.graphSubTab === 'people' ? state.graphPeopleRelationships : state.graphItemRelationships} 
+                  relationshipDefs={state.relationshipDefs} 
+                  characterGroups={state.characterGroups} 
+                  layout={state.graphSubTab === 'people' ? state.graphLayout : state.itemGraphLayout} 
+                  // 连线逻辑分离
+                  onAddRelationship={(s, t, r) => setState(prev => { 
+                    const isPeople = prev.graphSubTab === 'people';
+                    const targetField = isPeople ? 'graphPeopleRelationships' : 'graphItemRelationships';
+                    const currentRels = prev[targetField];
+                    
+                    const exists = currentRels.findIndex(x => (x.source === s && x.target === t) || (x.source === t && x.target === s)); 
+                    const newRels = [...currentRels]; 
+                    if (exists > -1) newRels[exists] = { ...newRels[exists], relation: r }; 
+                    else newRels.push({ source: s, target: t, relation: r }); 
+                    
+                    return { ...prev, [targetField]: newRels }; 
+                  })} 
+                  onRemoveRelationship={(s, t, r) => setState(prev => {
+                    const isPeople = prev.graphSubTab === 'people';
+                    const targetField = isPeople ? 'graphPeopleRelationships' : 'graphItemRelationships';
+                    return { ...prev, [targetField]: prev[targetField].filter(x => !(x.source === s && x.target === t && x.relation === r)) };
+                  })} 
+                  onUpdateDefs={defs => setState(prev => ({ ...prev, relationshipDefs: defs }))} 
+                  onNodeDrop={(id, type) => {
+                    setState(prev => {
+                        if (prev.graphSubTab === 'people') {
+                            if (type === 'character' && !prev.graphActiveCharacterIds.includes(id)) {
+                                return { ...prev, graphActiveCharacterIds: [...prev.graphActiveCharacterIds, id] };
+                            }
+                        } else {
+                            if (!prev.itemGraphActiveIds.includes(id)) {
+                                return { ...prev, itemGraphActiveIds: [...prev.itemGraphActiveIds, id] };
+                            }
+                        }
+                        return prev;
+                    });
+                  }} 
+                  onUpdateLayout={lay => setState(prev => ({ ...prev, [prev.graphSubTab === 'people' ? 'graphLayout' : 'itemGraphLayout']: { ...prev[prev.graphSubTab === 'people' ? 'graphLayout' : 'itemGraphLayout'], ...lay } }))} 
+                  onRemoveNode={(id, type) => setState(prev => {
+                    const isPeople = prev.graphSubTab === 'people';
+                    const relField = isPeople ? 'graphPeopleRelationships' : 'graphItemRelationships';
+                    const activeField = isPeople ? 'graphActiveCharacterIds' : 'itemGraphActiveIds';
+                    
+                    return { 
+                      ...prev, 
+                      [activeField]: (prev[activeField] as string[]).filter(x => x !== id), 
+                      [relField]: (prev[relField] as Relationship[]).filter(r => r.source !== id && r.target !== id) 
+                    };
+                  })}
+                  onAddGroup={g => setState(p => ({ ...p, characterGroups: [...p.characterGroups, g] }))} 
+                  onUpdateGroup={g => setState(p => ({ ...p, characterGroups: p.characterGroups.map(i => i.id === g.id ? g : i) }))} 
+                  onRemoveGroup={id => setState(p => ({ ...p, characterGroups: p.characterGroups.filter(g => g.id !== id) }))} 
+                />
+              </div>
+            )}
             {activeTab === 'evidence' && (
               <div className="space-y-6">
                 <div className="flex gap-4 border-b border-slate-800 pb-2">
@@ -388,7 +408,12 @@ const App: React.FC = () => {
       <ClueModal isOpen={isClueModalOpen} editingClue={editingClue} locations={state.locations} blobUrls={blobUrls} onClose={() => { setIsClueModalOpen(false); setEditingClue(null); }} onSave={c => setState(p => ({ ...p, clues: p.clues.some(x => x.id === c.id) ? p.clues.map(x => x.id === c.id ? c : x) : [...p.clues, c] }))} onImageSave={handleEntityImageSave} />
       {showExportModal && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300"><div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-sm overflow-hidden"><div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center"><h3 className="text-xl font-bold text-white flex items-center gap-3"><FileArchive className="text-blue-400" size={24} />打包导出</h3><button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white"><X size={24} /></button></div><div className="p-8 space-y-4"><p className="text-sm text-slate-400">我们将所有案情数据和图片文件打包为 .mind 文件。</p><button onClick={() => exportArchive(true)} className="w-full flex items-center justify-center gap-3 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all font-bold shadow-xl shadow-blue-900/20"><Save size={20} /> 打包导出 .mind</button></div></div></div>}
       {showClearConfirm && <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/90 backdrop-blur-lg p-4 animate-in fade-in duration-300"><div className="bg-slate-800 rounded-3xl border border-red-900/50 shadow-2xl w-full max-w-md overflow-hidden"><div className="p-8 text-center space-y-6"><div className="w-20 h-20 bg-red-900/30 rounded-full flex items-center justify-center mx-auto border border-red-500/30 shadow-lg shadow-red-900/20"><AlertTriangle className="text-red-500" size={40} /></div><div className="space-y-2"><h3 className="text-2xl font-black text-white">彻底清空案情档案?</h3><p className="text-slate-400 text-sm leading-relaxed px-4">该操作将永久删除所有未导出的本地图片和逻辑关联。</p></div><div className="flex flex-col gap-3 pt-4"><button onClick={handleResetArchive} className="w-full flex items-center justify-center gap-3 py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black shadow-xl">确认清空并新建</button><button onClick={() => setShowClearConfirm(false)} className="w-full py-4 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-2xl font-bold transition-all">取消</button></div></div></div></div>}
-      {characterToDelete && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"><div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm animate-in zoom-in-95 duration-200 overflow-hidden"><div className="p-6 text-center"><div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div><h3 className="text-xl font-bold text-white mb-2">确认删除角色?</h3><div className="flex gap-3"><button onClick={() => setCharacterToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all">取消</button><button onClick={() => setState(p => ({ ...p, characters: p.characters.filter(c => c.id !== characterToDelete.id), relationships: p.relationships.filter(r => r.source !== characterToDelete.id && r.target !== characterToDelete.id) }))} className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95">确认删除</button></div></div></div></div>}
+      {characterToDelete && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/80 backdrop-blur-md p-4"><div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm animate-in zoom-in-95 duration-200 overflow-hidden"><div className="p-6 text-center"><div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div><h3 className="text-xl font-bold text-white mb-2">确认删除角色?</h3><div className="flex gap-3"><button onClick={() => setCharacterToDelete(null)} className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-bold transition-all">取消</button><button onClick={() => setState(p => ({ 
+          ...p, 
+          characters: p.characters.filter(c => c.id !== characterToDelete.id), 
+          graphPeopleRelationships: p.graphPeopleRelationships.filter(r => r.source !== characterToDelete.id && r.target !== characterToDelete.id),
+          graphItemRelationships: p.graphItemRelationships.filter(r => r.source !== characterToDelete.id && r.target !== characterToDelete.id) 
+        }))} className="flex-1 px-4 py-2.5 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold shadow-lg shadow-red-900/30 transition-all active:scale-95">确认删除</button></div></div></div></div>}
       {editingCharacter && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-200"><div className="bg-slate-800 rounded-3xl border border-slate-600 w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200"><div className="flex justify-between items-center p-5 border-b border-slate-700 bg-slate-900/50"><h3 className="text-lg font-bold text-white flex items-center gap-2"><Users size={18} className="text-blue-400" />编辑人物档案</h3><button onClick={() => setEditingCharacter(null)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={20}/></button></div><div className="p-8 space-y-6"><div className="flex flex-col items-center gap-4"><div onClick={() => charFileInputRef.current?.click()} className="w-24 h-24 rounded-full border-2 border-dashed border-slate-600 bg-slate-900/50 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-all overflow-hidden relative group"><input type="file" ref={charFileInputRef} className="hidden" accept="image/*" onChange={handleCharImageUpload} />{isCharImageLoading ? <Loader2 className="animate-spin text-blue-500" size={24} /> : editingCharacter.imageId ? <><img src={blobUrls[editingCharacter.imageId]} className="w-full h-full object-cover" /><div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"><Camera size={20} className="text-white" /></div></> : <div className="flex flex-col items-center text-slate-500 group-hover:text-blue-400"><Camera size={24} /><span className="text-[10px] mt-1 font-bold">上传照片</span></div>}</div><span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">点击更新人物头像</span></div><div className="grid grid-cols-2 gap-4"><div className="space-y-1.5"><label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">姓名</label><input className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white outline-none focus:ring-2 focus:ring-blue-500 font-bold" value={editingCharacter.name} onChange={e => setEditingCharacter({...editingCharacter, name: e.target.value})} /></div><div className="space-y-1.5"><label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">身份标签</label><input className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-2.5 text-white outline-none focus:ring-2 focus:ring-blue-500" value={editingCharacter.raw_info || ''} onChange={e => setEditingCharacter({...editingCharacter, raw_info: e.target.value})} /></div></div><div className="space-y-1.5"><label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">人物笔记</label><textarea className="w-full h-32 bg-slate-900 border border-slate-700 rounded-2xl p-4 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none font-mono" value={editingCharacter.note || ''} onChange={e => setEditingCharacter({...editingCharacter, note: e.target.value})} /></div><div className="flex justify-end gap-3 pt-4"><button onClick={() => setEditingCharacter(null)} className="px-6 py-2.5 text-slate-400 hover:text-white text-sm font-bold transition-colors">取消</button><button onClick={() => { setState(p => ({ ...p, characters: p.characters.map(c => c.id === editingCharacter.id ? editingCharacter : c) })); setEditingCharacter(null); }} className="bg-blue-600 hover:bg-blue-500 text-white px-10 py-2.5 rounded-xl font-black text-sm transition-all shadow-xl active:scale-95">确认存档</button></div></div></div></div>}
     </div>
   );

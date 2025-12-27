@@ -97,6 +97,9 @@ const ClueModal: React.FC<Props> = ({ isOpen, editingClue, locations, blobUrls, 
       description: clueDesc.trim(),
       imageId: clueImageId
     });
+    
+    // 关键修复：保存后关闭弹窗
+    onClose();
   };
 
   const currentImageUrl = clueImageId ? blobUrls[clueImageId] : null;

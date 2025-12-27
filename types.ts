@@ -133,7 +133,10 @@ export type ItemTimelineData = Record<string, ItemPlacement[]>;
 
 export interface AppState {
   characters: Character[];
-  relationships: Relationship[];
+  // 画布连线数据隔离
+  graphPeopleRelationships: Relationship[];
+  graphItemRelationships: Relationship[];
+  
   relationshipDefs: RelationshipDef[];
   characterGroups: CharacterGroup[];
   clues: Clue[];
@@ -148,26 +151,38 @@ export interface AppState {
   
   // 时间线新字段
   timelineSegments: TimelineSegment[];
-  timelinePeriods: TimePeriodLabel[]; // 时间段备注
-  timelineActiveCharIds: string[];    // 选中的角色
-  timelineCharOrder: string[];        // 角色显示顺序
+  timelinePeriods: TimePeriodLabel[]; 
+  timelineActiveCharIds: string[];    
+  timelineCharOrder: string[];        
   timelineSlotCount: number;      
 
   currentMapId: string;
   currentTimeId: string;
+
+  // 画布 A：人物关系 状态
   graphActiveCharacterIds: string[];
   graphLayout: Record<string, { x: number; y: number }>;
+  
+  // 画布 B：物证逻辑 状态
+  itemGraphActiveIds: string[]; 
+  itemGraphLayout: Record<string, { x: number; y: number }>;
+  
+  graphSubTab: 'people' | 'items';
   lastFileName: string | null;
 }
 
 export const INITIAL_STATE: AppState = {
   characters: [],
-  relationships: [],
+  graphPeopleRelationships: [],
+  graphItemRelationships: [],
   relationshipDefs: [
     { id: '1', label: '仇敌', color: '#ef4444' },
     { id: '2', label: '盟友', color: '#22c55e' },
-    { id: '3', label: '亲属', color: '#3b82f6' },
-    { id: '4', label: '普通', color: '#94a3b8' },
+    { id: '3', label: '持有', color: '#f59e0b' },
+    { id: '4', label: '亲属', color: '#3b82f6' },
+    { id: '5', label: '配套', color: '#10b981' },
+    { id: '6', label: '包含', color: '#8b5cf6' },
+    { id: '7', label: '矛盾', color: '#f43f5e' },
   ],
   characterGroups: [],
   clues: [],
@@ -188,7 +203,13 @@ export const INITIAL_STATE: AppState = {
   
   currentMapId: 'default',
   currentTimeId: 't1',
+  
   graphActiveCharacterIds: [],
   graphLayout: {},
+  
+  itemGraphActiveIds: [],
+  itemGraphLayout: {},
+  
+  graphSubTab: 'people',
   lastFileName: null
 };
