@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import { Space, Point, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Character, Clue, Alibi } from '../types';
-import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser, ShieldCheck, Users, GripHorizontal } from 'lucide-react';
+import { Upload, Plus, X, Trash2, MapPin, Clock, Edit3, Loader2, AlertTriangle, Package, ZoomIn, Maximize2, Tag, AlignLeft, Hash, MousePointer2, Copy, Scissors, Clipboard, Check, Eraser, ShieldCheck, Users, GripHorizontal, Maximize, Minimize } from 'lucide-react';
 import { compressImage } from '../utils/imageProcessor';
 
 interface Props {
@@ -72,6 +72,7 @@ const MapCanvas: React.FC<Props> = ({
   const [isTimeModalOpen, setIsTimeModalOpen] = useState(false);
   const [newTimeName, setNewTimeName] = useState("");
   const [timeToDelete, setTimeToDelete] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   const timeInputRef = useRef<HTMLInputElement>(null);
   
   const [editingTimeId, setEditingTimeId] = useState<string | null>(null);
@@ -132,7 +133,7 @@ const MapCanvas: React.FC<Props> = ({
       const ro = new ResizeObserver(updateSize);
       if (wrapperRef.current) ro.observe(wrapperRef.current);
       return () => ro.disconnect();
-  }, [naturalSize, currentMapUrl, zoom, canvasHeight]);
+  }, [naturalSize, currentMapUrl, zoom, canvasHeight, isExpanded]);
 
   const handleZoomBlur = () => {
     let num = parseInt(zoomInput);
@@ -250,9 +251,8 @@ const MapCanvas: React.FC<Props> = ({
       e.stopPropagation();
   };
 
-  // --- 场景选项卡拖拽排序逻辑 ---
   const handleMapDragStart = (index: number) => {
-    if (editingMapId) return; // 编辑模式下禁止拖拽
+    if (editingMapId) return; 
     setDraggedMapIndex(index);
   };
 
@@ -510,7 +510,10 @@ const MapCanvas: React.FC<Props> = ({
   }, [selectedIds, currentMapId]);
 
   return (
-    <div style={{ height: `${canvasHeight}px` }} className="flex flex-col gap-2 relative transition-all duration-300 select-none">
+    <div 
+        style={{ height: isExpanded ? '100vh' : `${canvasHeight}px` }} 
+        className={`flex flex-col gap-2 transition-all duration-300 select-none ${isExpanded ? 'fixed inset-0 z-[400] bg-slate-950 p-6' : 'relative'}`}
+    >
       <div className="flex items-center justify-between bg-slate-800 p-2 rounded-lg border border-slate-700 shrink-0">
         <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1 max-w-[40%]">
             {maps.map((m, idx) => (
@@ -591,6 +594,12 @@ const MapCanvas: React.FC<Props> = ({
                 ) : (
                     <button onClick={() => setIsDrawing(true)} className="flex items-center gap-2 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 rounded text-sm font-bold shadow-lg transition-all"><Plus size={16} /> 绘制区域</button>
                 )}
+                <button 
+                  onClick={() => setIsExpanded(!isExpanded)}
+                  className={`p-1.5 rounded transition-all shadow-lg ${isExpanded ? 'bg-slate-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}`}
+                >
+                    {isExpanded ? <Minimize size={18} /> : <Maximize size={18} />}
+                </button>
             </div>
         </div>
       </div>
@@ -732,7 +741,7 @@ const MapCanvas: React.FC<Props> = ({
           )}
       </div>
 
-      <div className="shrink-0 h-40 bg-slate-800 rounded-lg border border-slate-700 flex flex-col shadow-inner">
+      <div className={`shrink-0 bg-slate-800 rounded-lg border border-slate-700 flex flex-col shadow-inner transition-all ${isExpanded ? 'h-48' : 'h-40'}`}>
         <div className="px-3 py-1.5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
             <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Clock size={14} className="text-orange-400" />时间线点 (Timeline)</h3>
             <div className="flex items-center gap-2">
@@ -745,7 +754,6 @@ const MapCanvas: React.FC<Props> = ({
                 const linkedAlibis = alibis.filter(a => a.timePointId === tp.id);
                 return (
                     <div key={tp.id} onClick={() => onSelectTime(tp.id)} className={`group flex-shrink-0 min-w-[14rem] h-full p-3 rounded cursor-pointer border transition-all relative flex flex-row items-stretch ${currentTimeId === tp.id ? 'bg-slate-700 border-orange-500/50 shadow-lg' : 'bg-slate-800 border-slate-700 hover:bg-slate-700/50 hover:border-slate-600'}`}>
-                        {/* 操作按钮 - 绝对定位至右上角 */}
                         <div className="absolute top-1.5 right-1.5 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-10">
                                {linkedAlibis.length > 0 && (
                                  <button onClick={(e) => { e.stopPropagation(); setShowAlibiSummary(tp.id); }} title="查看不在场证明汇总" className="text-purple-400 hover:scale-110 p-0.5">
@@ -762,7 +770,6 @@ const MapCanvas: React.FC<Props> = ({
                                {timePoints.length > 1 && <button onClick={(e) => { e.stopPropagation(); setTimeToDelete(tp.id); }} title="删除时间点" className="text-slate-600 hover:text-red-400 p-0.5"><X size={11} /></button>}
                         </div>
 
-                        {/* 左侧：名称内容 */}
                         <div className="flex-1 min-w-0 flex flex-col justify-center overflow-hidden pr-2">
                             {editingTimeId === tp.id ? (
                                 <input 
@@ -794,7 +801,6 @@ const MapCanvas: React.FC<Props> = ({
                             )}
                         </div>
 
-                        {/* 右侧：统计信息 - 纵向排列 */}
                         <div className="shrink-0 flex flex-col justify-center gap-1.5 pl-3 border-l border-white/5">
                              <div className="flex items-center gap-1.5 px-2 py-1 bg-black/30 rounded text-[9px] text-slate-400 font-mono shadow-inner border border-white/5">
                                  <Users size={10} className="text-blue-500/70" />
@@ -806,7 +812,6 @@ const MapCanvas: React.FC<Props> = ({
                              </div>
                         </div>
 
-                        {/* 激活底线 */}
                         {currentTimeId === tp.id && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-orange-500 rounded-b"></div>}
                     </div>
                 );
@@ -815,7 +820,7 @@ const MapCanvas: React.FC<Props> = ({
       </div>
 
       {showAlibiSummary && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowAlibiSummary(null)}>
+        <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setShowAlibiSummary(null)}>
             <div className="bg-slate-800 rounded-2xl border border-purple-500/40 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
                     <h3 className="font-bold text-white flex items-center gap-2"><ShieldCheck size={20} className="text-purple-400" />证明核查: {timePoints.find(t => t.id === showAlibiSummary)?.label}</h3>
@@ -847,7 +852,7 @@ const MapCanvas: React.FC<Props> = ({
       )}
 
       {mapToDelete && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm overflow-hidden p-6 text-center">
               <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div>
               <h3 className="text-xl font-bold text-white mb-2">确认删除场景?</h3>
@@ -857,7 +862,7 @@ const MapCanvas: React.FC<Props> = ({
         </div>
       )}
       {timeToDelete && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-2xl border border-red-900/50 shadow-2xl w-full max-sm overflow-hidden p-6 text-center">
               <div className="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-red-500/30"><AlertTriangle className="text-red-500" size={32} /></div>
               <h3 className="text-xl font-bold text-white mb-2">确认删除轨迹点?</h3>
@@ -867,7 +872,7 @@ const MapCanvas: React.FC<Props> = ({
         </div>
       )}
       {isTimeModalOpen && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">添加时间节点</h3><button onClick={() => setIsTimeModalOpen(false)}><X size={20}/></button></div>
                 <div className="p-6"><input ref={timeInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none" placeholder="例如: 12:00" value={newTimeName} onChange={(e) => setNewTimeName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSaveTimePoint()} /></div>
@@ -876,7 +881,7 @@ const MapCanvas: React.FC<Props> = ({
         </div>
       )}
       {isMapModalOpen && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
             <div className="bg-slate-800 rounded-xl border border-slate-600 shadow-2xl w-full max-w-sm">
                 <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl"><h3 className="font-bold text-white">新建地图层</h3><button onClick={() => setIsMapModalOpen(false)}><X size={20}/></button></div>
                 <div className="p-6"><input ref={mapInputRef} className="w-full bg-slate-900 border border-slate-600 rounded p-2 text-white outline-none" placeholder="例如: 地下室" value={newMapName} onChange={(e) => setNewMapName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleConfirmAddMap()} /></div>

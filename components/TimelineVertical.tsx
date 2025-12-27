@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -46,6 +46,7 @@ const TimelineVertical: React.FC<Props> = ({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSeg, setEditingSeg] = useState<Partial<TimelineSegment> | null>(null);
   const [draggedCharIndex, setDraggedCharIndex] = useState<number | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
@@ -109,8 +110,7 @@ const TimelineVertical: React.FC<Props> = ({
   };
 
   return (
-    <div className="flex flex-col min-h-screen space-y-4">
-      {/* 顶部工具栏 */}
+    <div className={`flex flex-col transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-[400] bg-slate-950 p-6' : 'min-h-screen space-y-4'}`}>
       <div className="flex items-center justify-between bg-slate-800/80 p-4 rounded-xl border border-slate-700 shadow-xl backdrop-blur shrink-0 sticky top-0 z-[100]">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-3">
@@ -154,41 +154,36 @@ const TimelineVertical: React.FC<Props> = ({
           </div>
         </div>
         
-        <div className="flex gap-2 relative">
+        <div className="flex gap-2 items-center">
             <button 
                 onClick={() => { setShowGuide(true); setTimeout(() => setShowGuide(false), 3000); }}
                 className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all"
             >
                 <Calendar size={16} /> 备注时间段
             </button>
-            {showGuide && (
-              <div className="absolute top-full mt-2 right-0 w-64 bg-blue-600 text-white p-3 rounded-xl shadow-2xl text-[10px] font-bold animate-in slide-in-from-top-2 z-[110]">
-                <div className="flex gap-2 items-start">
-                  <Info size={14} className="shrink-0" />
-                  <p>请在下方时间轴上依次点击两个轴格编号（如 G1 和 G5）来划定时间备注范围。</p>
-                </div>
-                <div className="absolute top-0 right-10 -translate-y-1/2 w-3 h-3 bg-blue-600 rotate-45"></div>
-              </div>
-            )}
             <button 
                 onClick={() => handleOpenAdd()}
                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl text-sm font-black shadow-lg shadow-blue-900/30 transition-all active:scale-95"
             >
                 <Plus size={18} /> 活动实录
             </button>
+            <button 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="p-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-xl border border-slate-600 shadow-xl transition-all"
+            >
+                {isExpanded ? <Minimize size={20} /> : <Maximize size={20} />}
+            </button>
         </div>
       </div>
 
-      {/* 主体容器：使用 rotate 技巧将横轴滚动条置顶 */}
       <div 
         className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl overflow-x-auto custom-scrollbar relative"
-        style={{ transform: 'rotateX(180deg)' }} // 翻转容器使滚动条在上
+        style={{ transform: 'rotateX(180deg)' }} 
       >
         <div 
           className="min-w-max min-h-full flex flex-col"
-          style={{ transform: 'rotateX(180deg)' }} // 翻转内容使其正向显示
+          style={{ transform: 'rotateX(180deg)' }} 
         >
-          {/* 表头层 - 粘性置顶 */}
           <div className="flex sticky top-0 z-50 bg-slate-900 border-b border-slate-800">
             <div 
               style={{ width: `${LEFT_SECTION_WIDTH}px` }}
@@ -220,12 +215,8 @@ const TimelineVertical: React.FC<Props> = ({
                 </div>
               </div>
             ))}
-            {activeCharIds.length === 0 && (
-                <div className="flex-1 px-8 py-4 text-slate-700 italic text-xs flex items-center">← 选取角色以展开轨道</div>
-            )}
           </div>
 
-          {/* 数据层 */}
           <div className="flex">
             <div 
               style={{ width: `${LEFT_SECTION_WIDTH}px` }}
@@ -345,9 +336,8 @@ const TimelineVertical: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* 录入 Modal */}
       {isModalOpen && editingSeg && (
-        <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
+        <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
               <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />轨迹实录</h3>
@@ -395,7 +385,6 @@ const TimelineVertical: React.FC<Props> = ({
                   <option value="">-- 不关联轨迹点 --</option>
                   {timePoints.map(tp => <option key={tp.id} value={tp.id}>{tp.label}</option>)}
                 </select>
-                <p className="text-[10px] text-slate-500 italic">关联后可在“轨迹”标签页快速对应人物坐标</p>
               </div>
 
               <div className="space-y-2">
@@ -409,28 +398,6 @@ const TimelineVertical: React.FC<Props> = ({
             </div>
           </div>
         </div>
-      )}
-
-      {/* 时间段备注 Modal */}
-      {isPeriodModalOpen && (
-          <div className="fixed inset-0 z-[250] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in zoom-in-95 duration-200">
-            <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-2xl w-full max-w-sm overflow-hidden">
-                <div className="p-5 bg-slate-900/50 border-b border-slate-700 flex justify-between items-center">
-                    <h3 className="font-bold text-white flex items-center gap-2"><Calendar size={18} className="text-blue-400"/> 时间阶段备注</h3>
-                    <button onClick={() => setIsPeriodModalOpen(false)}><X size={20} className="text-slate-400"/></button>
-                </div>
-                <div className="p-6 space-y-4">
-                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">
-                        范围: G{editingSeg?.startSlot ? editingSeg.startSlot + 1 : 1} - G{editingSeg?.endSlot || 1}
-                    </p>
-                    <input autoFocus className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-white outline-none focus:ring-2 focus:ring-blue-500/50" placeholder="例如: 晚餐时间, 停电期间..." value={newPeriodLabel} onChange={(e) => setNewPeriodLabel(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSavePeriod()} />
-                </div>
-                <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex justify-end gap-2">
-                    <button onClick={() => setIsPeriodModalOpen(false)} className="px-4 py-2 text-slate-400 text-sm font-bold transition-colors">取消</button>
-                    <button onClick={handleSavePeriod} className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-bold shadow-lg transition-all active:scale-95">确认</button>
-                </div>
-            </div>
-          </div>
       )}
     </div>
   );

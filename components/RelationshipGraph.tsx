@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Character, Relationship, RelationshipDef, CharacterGroup, Clue } from '../types';
-import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, Layers, Check, Edit2, X, AlertTriangle, Package, Users } from 'lucide-react';
+import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, Layers, Check, Edit2, X, AlertTriangle, Package, Users, Maximize, Minimize } from 'lucide-react';
 
 interface Props {
   viewMode: 'people' | 'items'; // 画布模式
@@ -55,6 +55,7 @@ const RelationshipGraph: React.FC<Props> = ({
   const [activeDefId, setActiveDefId] = useState<string>(relationshipDefs[0]?.id);
   const [selectedSource, setSelectedSource] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
   
   const [selectedForGroup, setSelectedForGroup] = useState<Set<string>>(new Set());
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
@@ -164,7 +165,7 @@ const RelationshipGraph: React.FC<Props> = ({
     if (!svgRef.current || !containerRef.current) return;
 
     const width = containerRef.current.clientWidth;
-    const height = 600; 
+    const height = isExpanded ? window.innerHeight - 100 : 600; 
     
     const svg = d3.select(svgRef.current)
       .attr("viewBox", [0, 0, width, height]);
@@ -212,8 +213,8 @@ const RelationshipGraph: React.FC<Props> = ({
             return { ...n, x: storedPos.x, y: storedPos.y };
         }
         const randomPos = { 
-            x: width/2 + (Math.random() - 0.5) * 200, 
-            y: height/2 + (Math.random() - 0.5) * 200 
+            x: width/2 + (Math.random() - 0.5) * (width * 0.4), 
+            y: height/2 + (Math.random() - 0.5) * (height * 0.4)
         };
         missingLayouts[n.id] = randomPos;
         return { ...n, ...randomPos };
@@ -439,7 +440,7 @@ const RelationshipGraph: React.FC<Props> = ({
 
     render();
 
-  }, [characters, clues, relationships, relationshipDefs, characterGroups, mode, selectedSource, layout, selectedForGroup, viewMode]); 
+  }, [characters, clues, relationships, relationshipDefs, characterGroups, mode, selectedSource, layout, selectedForGroup, viewMode, isExpanded]); 
 
   useEffect(() => {
     const handleNodeClick = (e: any) => {
@@ -462,7 +463,7 @@ const RelationshipGraph: React.FC<Props> = ({
   }, [selectedSource, activeDefId, relationshipDefs, onAddRelationship]);
 
   return (
-    <div className="flex gap-4 flex-col lg:flex-row h-full min-h-[600px] relative">
+    <div className={`flex gap-4 flex-col lg:flex-row transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-[400] bg-slate-950 p-6' : 'h-full min-h-[600px] relative'}`}>
         <div 
             ref={containerRef}
             onDragOver={handleDragOver}
@@ -471,6 +472,7 @@ const RelationshipGraph: React.FC<Props> = ({
             className={`flex-1 bg-slate-900/40 rounded-2xl overflow-hidden border-2 shadow-inner relative flex flex-col transition-all
                 ${isDragOver ? 'border-blue-500 bg-slate-800/80' : 'border-slate-800'}
                 ${mode === 'delete' ? 'ring-2 ring-red-500/30' : ''}
+                ${isExpanded ? 'ring-4 ring-blue-500/20' : ''}
             `}
         >
             <svg ref={svgRef} className="w-full h-full block touch-none" />
@@ -489,9 +491,16 @@ const RelationshipGraph: React.FC<Props> = ({
                     <span className="text-xs font-black text-slate-200 uppercase tracking-widest">{viewMode === 'people' ? '人物关系画布' : '物证逻辑画布'}</span>
                 </div>
             </div>
+
+            <button 
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="absolute top-6 right-6 p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl border border-slate-700 shadow-xl transition-all active:scale-95"
+            >
+                {isExpanded ? <Minimize size={20} /> : <Maximize size={20} />}
+            </button>
         </div>
 
-        <div className="w-full lg:w-72 flex flex-col gap-4 shrink-0">
+        <div className={`w-full lg:w-72 flex flex-col gap-4 shrink-0 transition-all ${isExpanded ? 'bg-slate-900/40 p-4 rounded-2xl border border-slate-800' : ''}`}>
             <div className="bg-slate-800 p-1 rounded-xl flex border border-slate-700 shadow-lg">
                 <button onClick={() => { setMode('move'); setSelectedSource(null); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'move' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}><Move size={18} /></button>
                 <button onClick={() => setMode('connect')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'connect' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}><LinkIcon size={18} /></button>
@@ -517,7 +526,7 @@ const RelationshipGraph: React.FC<Props> = ({
         </div>
 
         {pendingAction && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+          <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
             <div className="bg-slate-800 rounded-3xl border border-red-900/50 shadow-2xl w-full max-w-sm overflow-hidden p-8 text-center animate-in zoom-in-95">
                 <div className="w-20 h-20 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/30 shadow-lg shadow-red-900/20"><AlertTriangle className="text-red-500" size={40} /></div>
                 <h3 className="text-xl font-black text-white mb-2 tracking-tight">确认删除?</h3>
@@ -531,7 +540,7 @@ const RelationshipGraph: React.FC<Props> = ({
         )}
 
         {isGroupModalOpen && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-lg">
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-lg">
                 <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-72 shadow-2xl animate-in zoom-in-95">
                     <h3 className="text-sm font-black text-white mb-4 uppercase tracking-widest">新建阵营分组</h3>
                     <input autoFocus value={newGroupLabel} onChange={(e) => setNewGroupLabel(e.target.value)} placeholder="组名..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white mb-4 focus:ring-2 focus:ring-yellow-500 outline-none" />
@@ -544,7 +553,7 @@ const RelationshipGraph: React.FC<Props> = ({
         )}
 
         {editingGroup && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+            <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
                 <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-md flex flex-col max-h-[80vh] overflow-hidden animate-in zoom-in-95">
                     <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
                         <h3 className="font-bold text-white flex items-center gap-3"><Layers size={20} className="text-yellow-400" />管理分组属性</h3>
