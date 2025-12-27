@@ -2,10 +2,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Character, Relationship, RelationshipDef, CharacterGroup, Clue } from '../types';
-import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, Layers, Check, Edit2, X, AlertTriangle, Package, Users, Maximize, Minimize, CheckCircle } from 'lucide-react';
+// Add MousePointer2 to imports
+import { Move, Link as LinkIcon, Plus, Trash2, ZoomIn, ZoomOut, Layers, Check, Edit2, X, AlertTriangle, Package, Users, Maximize, Minimize, CheckCircle, MousePointer2 } from 'lucide-react';
 
 interface Props {
-  viewMode: 'people' | 'items'; // 画布模式
+  viewMode: 'people' | 'items';
   characters: Character[];
   clues: Clue[]; 
   relationships: Relationship[];
@@ -27,6 +28,7 @@ type PendingAction =
   | { type: 'delete_group'; id: string; label: string }
   | { type: 'delete_relationship'; source: string; target: string; relation: string }
   | { type: 'delete_node'; id: string; name: string; nodeType: 'character' | 'clue' }
+  | { type: 'bulk_delete'; ids: string[]; names: string[] }
   | null;
 
 const RelationshipGraph: React.FC<Props> = ({ 
@@ -64,19 +66,16 @@ const RelationshipGraph: React.FC<Props> = ({
   const [zoomLevel, setZoomLevel] = useState(1);
   const [isDragOver, setIsDragOver] = useState(false);
 
-  const nodesRef = useRef<any[]>([]);
+  // 框选相关状态
+  const [selectionBox, setSelectionBox] = useState<{ x1: number, y1: number, x2: number, y2: number } | null>(null);
 
+  const nodesRef = useRef<any[]>([]);
   const getDefByLabel = (label: string) => relationshipDefs.find(d => d.label === label);
   const getActiveDef = () => relationshipDefs.find(d => d.id === activeDefId);
-
   const generateRandomHex = () => '#' + Math.floor(Math.random() * 16777215).toString(16).padStart(6, '0');
 
   const handleAddDef = () => {
-    const newDef: RelationshipDef = {
-        id: crypto.randomUUID(),
-        label: '新关系',
-        color: generateRandomHex()
-    };
+    const newDef: RelationshipDef = { id: crypto.randomUUID(), label: '新关系', color: generateRandomHex() };
     onUpdateDefs([...relationshipDefs, newDef]);
     setActiveDefId(newDef.id);
   };
@@ -93,12 +92,7 @@ const RelationshipGraph: React.FC<Props> = ({
 
   const handleCreateGroup = () => {
       if (newGroupLabel.trim()) {
-          onAddGroup({
-              id: crypto.randomUUID(),
-              label: newGroupLabel.trim(),
-              characterIds: Array.from(selectedForGroup),
-              color: generateRandomHex()
-          });
+          onAddGroup({ id: crypto.randomUUID(), label: newGroupLabel.trim(), characterIds: Array.from(selectedForGroup), color: generateRandomHex() });
           setNewGroupLabel("");
           setSelectedForGroup(new Set());
           setIsGroupModalOpen(false);
@@ -109,12 +103,8 @@ const RelationshipGraph: React.FC<Props> = ({
   const handleUpdateGroupMember = (add: boolean, nodeId: string) => {
       if (!editingGroup) return;
       let newIds = [...editingGroup.characterIds];
-      if (add) {
-          if (!newIds.includes(nodeId)) newIds.push(nodeId);
-      } else {
-          newIds = newIds.filter(id => id !== nodeId);
-      }
-      
+      if (add) { if (!newIds.includes(nodeId)) newIds.push(nodeId); } 
+      else { newIds = newIds.filter(id => id !== nodeId); }
       const updated = { ...editingGroup, characterIds: newIds };
       setEditingGroup(updated); 
       onUpdateGroup(updated); 
@@ -127,34 +117,79 @@ const RelationshipGraph: React.FC<Props> = ({
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = () => {
-    setIsDragOver(false);
-  };
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true); };
+  const handleDragLeave = () => setIsDragOver(false);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
     if (!containerRef.current || !svgRef.current) return;
-
-    // 获取放置位置的世界坐标（考虑缩放和偏移）
     const rect = containerRef.current.getBoundingClientRect();
     const transform = d3.zoomTransform(svgRef.current);
     const dropX = (e.clientX - rect.left - transform.x) / transform.k;
     const dropY = (e.clientY - rect.top - transform.y) / transform.k;
-
     const charId = e.dataTransfer.getData("application/react-dnd-char-id");
     const clueId = e.dataTransfer.getData("application/react-dnd-clue-id");
-    
-    if (charId) {
-        onNodeDrop(charId, 'character', dropX, dropY);
-    } else if (clueId && viewMode === 'items') {
-        onNodeDrop(clueId, 'clue', dropX, dropY);
+    if (charId) onNodeDrop(charId, 'character', dropX, dropY);
+    else if (clueId && viewMode === 'items') onNodeDrop(clueId, 'clue', dropX, dropY);
+  };
+
+  // --- 框选坐标转换逻辑 ---
+  const getMouseWorldCoords = (e: React.MouseEvent) => {
+    if (!svgRef.current || !containerRef.current) return { x: 0, y: 0 };
+    const rect = svgRef.current.getBoundingClientRect();
+    const transform = d3.zoomTransform(svgRef.current);
+    return {
+      x: (e.clientX - rect.left - transform.x) / transform.k,
+      y: (e.clientY - rect.top - transform.y) / transform.k
+    };
+  };
+
+  const handleSvgMouseDown = (e: React.MouseEvent) => {
+    // 只有在特定模式且点击背景时触发框选
+    if ((mode === 'group' || mode === 'delete') && e.button === 0 && e.target === svgRef.current) {
+      const coords = getMouseWorldCoords(e);
+      setSelectionBox({ x1: coords.x, y1: coords.y, x2: coords.x, y2: coords.y });
+    }
+  };
+
+  const handleSvgMouseMove = (e: React.MouseEvent) => {
+    if (selectionBox) {
+      const coords = getMouseWorldCoords(e);
+      setSelectionBox(prev => prev ? { ...prev, x2: coords.x, y2: coords.y } : null);
+    }
+  };
+
+  const handleSvgMouseUp = (e: React.MouseEvent) => {
+    if (selectionBox) {
+      const xMin = Math.min(selectionBox.x1, selectionBox.x2);
+      const xMax = Math.max(selectionBox.x1, selectionBox.x2);
+      const yMin = Math.min(selectionBox.y1, selectionBox.y2);
+      const yMax = Math.max(selectionBox.y1, selectionBox.y2);
+
+      const isTiny = Math.abs(selectionBox.x1 - selectionBox.x2) < 2 && Math.abs(selectionBox.y1 - selectionBox.y2) < 2;
+
+      if (!isTiny) {
+        const inBoxIds = nodesRef.current
+          .filter(n => n.x >= xMin && n.x <= xMax && n.y >= yMin && n.y <= yMax)
+          .map(n => n.id);
+
+        if (mode === 'group') {
+          setSelectedForGroup(prev => {
+            const next = new Set(prev);
+            inBoxIds.forEach(id => next.add(id));
+            return next;
+          });
+        } else if (mode === 'delete' && inBoxIds.length > 0) {
+          const names = inBoxIds.map(id => {
+              const char = characters.find(c => c.id === id);
+              const clue = clues.find(c => c.id === id);
+              return char?.name || clue?.name || '未知项';
+          });
+          setPendingAction({ type: 'bulk_delete', ids: inBoxIds, names });
+        }
+      }
+      setSelectionBox(null);
     }
   };
 
@@ -166,6 +201,11 @@ const RelationshipGraph: React.FC<Props> = ({
       onRemoveRelationship(pendingAction.source, pendingAction.target, pendingAction.relation);
     } else if (pendingAction.type === 'delete_node') {
       onRemoveNode(pendingAction.id, pendingAction.nodeType);
+    } else if (pendingAction.type === 'bulk_delete') {
+      pendingAction.ids.forEach(id => {
+          const char = characters.find(c => c.id === id);
+          onRemoveNode(id, char ? 'character' : 'clue');
+      });
     }
     setPendingAction(null);
   };
@@ -175,9 +215,7 @@ const RelationshipGraph: React.FC<Props> = ({
 
     const width = containerRef.current.clientWidth;
     const height = isExpanded ? window.innerHeight - 100 : 600; 
-    
-    const svg = d3.select(svgRef.current)
-      .attr("viewBox", [0, 0, width, height]);
+    const svg = d3.select(svgRef.current).attr("viewBox", [0, 0, width, height]);
 
     svg.selectAll("*").remove();
 
@@ -200,6 +238,13 @@ const RelationshipGraph: React.FC<Props> = ({
 
     const zoom = d3.zoom<SVGSVGElement, unknown>()
         .scaleExtent([0.1, 4])
+        .filter((event) => {
+            // 在框选相关的模式下，左键点击背景不触发平移
+            if ((mode === 'group' || mode === 'delete') && event.type === 'mousedown' && !event.ctrlKey && event.button === 0) {
+               return event.target !== svgRef.current;
+            }
+            return !event.ctrlKey || event.type === 'wheel';
+        })
         .on("zoom", (event) => {
             g.attr("transform", event.transform);
             setZoomLevel(event.transform.k); 
@@ -209,32 +254,17 @@ const RelationshipGraph: React.FC<Props> = ({
     svg.call(zoom);
     svg.call(zoom.scaleTo, zoomLevel);
 
-    const missingLayouts: Record<string, {x: number, y: number}> = {};
     const safeLayout = layout || {};
-
     const characterNodes = characters.map(c => ({ ...c, type: 'character' as const }));
     const clueNodes = clues.map(c => ({ ...c, type: 'clue' as const }));
     const allNodesData = [...characterNodes, ...clueNodes];
 
     const finalNodes = allNodesData.map(n => {
         const storedPos = safeLayout[n.id];
-        if (storedPos) {
-            return { ...n, x: storedPos.x, y: storedPos.y };
-        }
-        const randomPos = { 
-            x: width/2 + (Math.random() - 0.5) * (width * 0.4), 
-            y: height/2 + (Math.random() - 0.5) * (height * 0.4)
-        };
-        missingLayouts[n.id] = randomPos;
-        return { ...n, ...randomPos };
+        if (storedPos) return { ...n, x: storedPos.x, y: storedPos.y };
+        return { ...n, x: width/2, y: height/2 };
     });
     
-    if (Object.keys(missingLayouts).length > 0) {
-        setTimeout(() => {
-            onUpdateLayout(missingLayouts);
-        }, 0);
-    }
-
     nodesRef.current = finalNodes;
 
     const activeIds = new Set(finalNodes.map(n => n.id));
@@ -243,22 +273,34 @@ const RelationshipGraph: React.FC<Props> = ({
     const groupLayer = g.append("g").attr("class", "groups");
     const linkGroup = g.append("g").attr("class", "links");
     const nodeGroup = g.append("g").attr("class", "nodes");
+    const selectLayer = g.append("g").attr("class", "selection-overlay"); // 框选层
 
     const getNode = (id: string) => nodesRef.current.find(n => n.id === id);
 
     const render = () => {
+        // --- 绘制框选矩形 ---
+        selectLayer.selectAll("rect").remove();
+        if (selectionBox) {
+            selectLayer.append("rect")
+                .attr("x", Math.min(selectionBox.x1, selectionBox.x2))
+                .attr("y", Math.min(selectionBox.y1, selectionBox.y2))
+                .attr("width", Math.abs(selectionBox.x1 - selectionBox.x2))
+                .attr("height", Math.abs(selectionBox.y1 - selectionBox.y2))
+                .attr("fill", mode === 'delete' ? "rgba(239, 68, 68, 0.1)" : "rgba(59, 130, 246, 0.1)")
+                .attr("stroke", mode === 'delete' ? "#ef4444" : "#3b82f6")
+                .attr("stroke-width", 1)
+                .attr("stroke-dasharray", "4,4");
+        }
+
         // --- GROUPS RENDER ---
         const groupsData = characterGroups.map(group => {
             const memberNodes = group.characterIds.map(id => getNode(id)).filter(n => n !== undefined) as any[];
             if (memberNodes.length === 0) return null;
-            
             const points = memberNodes.map(n => [n.x, n.y] as [number, number]);
             let pathData = "";
             let centroid = { x: 0, y: 0 };
-            
             if (points.length === 1) {
-                const [x, y] = points[0];
-                centroid = { x, y };
+                const [x, y] = points[0]; centroid = { x, y };
                 pathData = `M ${x}, ${y} m -35, 0 a 35,35 0 1,0 70,0 a 35,35 0 1,0 -70,0`; 
             } else if (points.length === 2) {
                 const [p1, p2] = points;
@@ -272,13 +314,11 @@ const RelationshipGraph: React.FC<Props> = ({
                     centroid = { x: cx, y: cy };
                 }
             }
-            
             return { ...group, pathData, centroid, pointCount: points.length };
         }).filter(Boolean) as any[];
 
         const groupSelection = groupLayer.selectAll("g").data(groupsData, (d: any) => d.id);
         const groupEnter = groupSelection.enter().append("g");
-        
         groupEnter.append("path")
             .merge(groupSelection.select("path") as any)
             .attr("d", (d: any) => d.pathData)
@@ -289,12 +329,7 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("stroke-opacity", 0.2)
             .attr("stroke-linejoin", "round")
             .attr("cursor", mode === 'delete' ? 'pointer' : 'default')
-            .on("click", (e, d: any) => {
-                if (mode === 'delete') {
-                    e.stopPropagation();
-                    setPendingAction({ type: 'delete_group', id: d.id, label: d.label });
-                }
-            });
+            .on("click", (e, d: any) => { if (mode === 'delete') { e.stopPropagation(); setPendingAction({ type: 'delete_group', id: d.id, label: d.label }); } });
 
         groupEnter.append("text")
             .merge(groupSelection.select("text") as any)
@@ -303,107 +338,59 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("y", (d: any) => d.centroid.y)
             .attr("text-anchor", "middle")
             .attr("dy", (d: any) => d.pointCount > 2 ? 0 : -45) 
-            .attr("font-size", "14px")
-            .attr("font-weight", "bold")
-            .attr("fill", (d: any) => d.color)
-            .style("text-shadow", "0px 1px 2px black")
-            .style("cursor", "pointer")
-            .style("pointer-events", "all") 
-            .on("click", (e, d: any) => {
-                e.stopPropagation();
-                if (mode === 'delete') {
-                    setPendingAction({ type: 'delete_group', id: d.id, label: d.label });
-                } else {
-                    setEditingGroup(d);
-                }
-            });
-            
+            .attr("font-size", "14px").attr("font-weight", "bold").attr("fill", (d: any) => d.color)
+            .style("text-shadow", "0px 1px 2px black").style("cursor", "pointer").style("pointer-events", "all") 
+            .on("click", (e, d: any) => { e.stopPropagation(); if (mode === 'delete') { setPendingAction({ type: 'delete_group', id: d.id, label: d.label }); } else { setEditingGroup(d); } });
         groupSelection.exit().remove();
 
         // --- LINKS RENDER ---
-        linkGroup.selectAll("line.hit-area")
-            .data(links)
-            .join("line")
-            .attr("class", "hit-area")
-            .attr("x1", (d: any) => getNode(d.source)?.x || 0)
-            .attr("y1", (d: any) => getNode(d.source)?.y || 0)
-            .attr("x2", (d: any) => getNode(d.target)?.x || 0)
-            .attr("y2", (d: any) => getNode(d.target)?.y || 0)
-            .attr("stroke", "transparent")
-            .attr("stroke-width", 20)
-            .style("cursor", mode === 'delete' ? 'pointer' : 'default')
-            .on("click", (e, d: any) => {
-                if (mode === 'delete') {
-                    e.stopPropagation();
-                    setPendingAction({ 
-                      type: 'delete_relationship', 
-                      source: d.source, 
-                      target: d.target, 
-                      relation: d.relation 
-                    });
-                }
-            });
+        linkGroup.selectAll("line.hit-area").data(links).join("line").attr("class", "hit-area")
+            .attr("x1", (d: any) => getNode(d.source)?.x || 0).attr("y1", (d: any) => getNode(d.source)?.y || 0)
+            .attr("x2", (d: any) => getNode(d.target)?.x || 0).attr("y2", (d: any) => getNode(d.target)?.y || 0)
+            .attr("stroke", "transparent").attr("stroke-width", 20).style("cursor", mode === 'delete' ? 'pointer' : 'default')
+            .on("click", (e, d: any) => { if (mode === 'delete') { e.stopPropagation(); setPendingAction({ type: 'delete_relationship', source: d.source, target: d.target, relation: d.relation }); } });
 
-        linkGroup.selectAll("line.visible-line")
-            .data(links)
-            .join("line")
-            .attr("class", "visible-line")
-            .attr("stroke-width", 2)
-            .attr("stroke", (d: any) => getDefByLabel(d.relation)?.color || '#94a3b8')
+        linkGroup.selectAll("line.visible-line").data(links).join("line").attr("class", "visible-line")
+            .attr("stroke-width", 2).attr("stroke", (d: any) => getDefByLabel(d.relation)?.color || '#94a3b8')
             .attr("marker-end", (d: any) => `url(#arrow-${getDefByLabel(d.relation)?.id || 'default'})`)
-            .attr("x1", (d: any) => getNode(d.source)?.x || 0)
-            .attr("y1", (d: any) => getNode(d.source)?.y || 0)
-            .attr("x2", (d: any) => getNode(d.target)?.x || 0)
-            .attr("y2", (d: any) => getNode(d.target)?.y || 0)
+            .attr("x1", (d: any) => getNode(d.source)?.x || 0).attr("y1", (d: any) => getNode(d.source)?.y || 0)
+            .attr("x2", (d: any) => getNode(d.target)?.x || 0).attr("y2", (d: any) => getNode(d.target)?.y || 0)
             .style("pointer-events", "none"); 
 
-        linkGroup.selectAll("text.link-label")
-            .data(links)
-            .join("text")
-            .attr("class", "link-label")
-            .text((d: any) => d.relation)
-            .attr("font-size", "10px")
-            .attr("fill", (d: any) => getDefByLabel(d.relation)?.color || '#94a3b8')
-            .attr("text-anchor", "middle")
-            .attr("dy", -5)
+        linkGroup.selectAll("text.link-label").data(links).join("text").attr("class", "link-label")
+            .text((d: any) => d.relation).attr("font-size", "10px").attr("fill", (d: any) => getDefByLabel(d.relation)?.color || '#94a3b8')
+            .attr("text-anchor", "middle").attr("dy", -5)
             .attr("x", (d: any) => (getNode(d.source)?.x + getNode(d.target)?.x) / 2 || 0)
             .attr("y", (d: any) => (getNode(d.source)?.y + getNode(d.target)?.y) / 2 || 0)
             .style("pointer-events", "none");
 
         // --- NODES RENDER ---
-        const node = nodeGroup
-            .selectAll("g")
-            .data(finalNodes, (d: any) => d.id)
-            .join("g")
+        const node = nodeGroup.selectAll("g").data(finalNodes, (d: any) => d.id).join("g")
             .attr("transform", (d: any) => `translate(${d.x},${d.y})`)
             .attr("cursor", mode === 'move' ? 'grab' : 'pointer')
             .on("click", (event, d: any) => {
-                if (mode === 'delete') {
-                    event.stopPropagation();
-                    setPendingAction({ type: 'delete_node', id: d.id, name: d.name, nodeType: d.type });
-                } else if (mode === 'connect') {
-                    event.stopPropagation();
-                    containerRef.current?.dispatchEvent(new CustomEvent('node-click', { detail: { id: d.id } }));
-                } else if (mode === 'group') {
+                if (mode === 'delete') { event.stopPropagation(); setPendingAction({ type: 'delete_node', id: d.id, name: d.name, nodeType: d.type }); } 
+                else if (mode === 'connect') { event.stopPropagation(); containerRef.current?.dispatchEvent(new CustomEvent('node-click', { detail: { id: d.id } })); } 
+                else if (mode === 'group') {
                     event.stopPropagation();
                     setSelectedForGroup(prev => {
                         const next = new Set(prev);
-                        if (next.has(d.id)) next.delete(d.id);
-                        else next.add(d.id);
+                        if (next.has(d.id)) next.delete(d.id); else next.add(d.id);
                         return next;
                     });
                 }
             });
 
         node.selectAll(".node-shape").remove(); 
-        node.append("path")
-            .attr("class", "node-shape")
+        node.append("path").attr("class", "node-shape")
             .attr("d", (d: any) => {
                 if (d.type === 'character') return d3.arc()({ innerRadius: 0, outerRadius: 20, startAngle: 0, endAngle: 2 * Math.PI });
                 return "M-18,-14 h36 a4,4 0 0 1 4,4 v20 a4,4 0 0 1 -4,4 h-36 a4,4 0 0 1 -4,-4 v-20 a4,4 0 0 1 4,-4 Z";
             })
             .attr("fill", "#1e293b") 
             .attr("stroke", (d: any) => {
+                const isInsideSelection = selectionBox && d.x >= Math.min(selectionBox.x1, selectionBox.x2) && d.x <= Math.max(selectionBox.x1, selectionBox.x2) && d.y >= Math.min(selectionBox.y1, selectionBox.y2) && d.y <= Math.max(selectionBox.y1, selectionBox.y2);
+                if (isInsideSelection) return mode === 'delete' ? '#ef4444' : '#60a5fa';
                 if (mode === 'group' && selectedForGroup.has(d.id)) return '#facc15'; 
                 if (d.id === selectedSource) return '#ef4444';
                 return d.type === 'character' ? '#3b82f6' : '#f59e0b';
@@ -412,51 +399,30 @@ const RelationshipGraph: React.FC<Props> = ({
             .attr("stroke-dasharray", (d: any) => (mode === 'group' && selectedForGroup.has(d.id)) ? "4 2" : "none");
 
         node.selectAll(".node-icon").remove();
-        node.filter((d: any) => d.type === 'clue')
-            .append("path")
-            .attr("class", "node-icon")
+        node.filter((d: any) => d.type === 'clue').append("path").attr("class", "node-icon")
             .attr("d", "M12 2l9 4-9 4-9-4 9-4z M21 6v11l-9 4-9-4v-11 M12 10v11")
-            .attr("transform", "translate(-6, -6) scale(0.5)")
-            .attr("fill", "none")
-            .attr("stroke", "#f59e0b")
-            .attr("stroke-width", "2");
+            .attr("transform", "translate(-6, -6) scale(0.5)").attr("fill", "none").attr("stroke", "#f59e0b").attr("stroke-width", "2");
 
         node.selectAll("text.node-label").remove();
-        node.append("text")
-            .attr("class", "node-label")
-            .text((d: any) => d.name)
-            .attr("x", 0)
-            .attr("y", (d: any) => d.type === 'character' ? 32 : 30)
-            .attr("text-anchor", "middle")
-            .attr("fill", "#f1f5f9")
-            .attr("font-size", "11px")
-            .attr("font-weight", "bold")
-            .style("pointer-events", "none");
+        node.append("text").attr("class", "node-label").text((d: any) => d.name)
+            .attr("x", 0).attr("y", (d: any) => d.type === 'character' ? 32 : 30)
+            .attr("text-anchor", "middle").attr("fill", "#f1f5f9").attr("font-size", "11px").attr("font-weight", "bold").style("pointer-events", "none");
 
         const drag = d3.drag<any, any>()
             .filter(() => mode === 'move') 
-            .on("drag", (event, d) => {
-                d.x = event.x;
-                d.y = event.y;
-                render();
-            })
-            .on("end", (event, d) => {
-                onUpdateLayout({ [d.id]: { x: d.x, y: d.y } });
-            });
-
+            .on("drag", (event, d) => { d.x = event.x; d.y = event.y; render(); })
+            .on("end", (event, d) => { onUpdateLayout({ [d.id]: { x: d.x, y: d.y } }); });
         node.call(drag);
     };
 
     render();
-
-  }, [characters, clues, relationships, relationshipDefs, characterGroups, mode, selectedSource, layout, selectedForGroup, viewMode, isExpanded]); 
+  }, [characters, clues, relationships, relationshipDefs, characterGroups, mode, selectedSource, layout, selectedForGroup, viewMode, isExpanded, selectionBox]); 
 
   useEffect(() => {
     const handleNodeClick = (e: any) => {
         const id = e.detail.id;
-        if (selectedSource === null) {
-            setSelectedSource(id);
-        } else {
+        if (selectedSource === null) setSelectedSource(id);
+        else {
             if (selectedSource !== id) {
                 const activeDef = getActiveDef();
                 if (activeDef) onAddRelationship(selectedSource, id, activeDef.label);
@@ -465,10 +431,7 @@ const RelationshipGraph: React.FC<Props> = ({
         }
     };
     const el = containerRef.current;
-    if (el) {
-        el.addEventListener('node-click', handleNodeClick);
-        return () => el.removeEventListener('node-click', handleNodeClick);
-    }
+    if (el) { el.addEventListener('node-click', handleNodeClick); return () => el.removeEventListener('node-click', handleNodeClick); }
   }, [selectedSource, activeDefId, relationshipDefs, onAddRelationship]);
 
   return (
@@ -484,7 +447,14 @@ const RelationshipGraph: React.FC<Props> = ({
                 ${isExpanded ? 'ring-4 ring-blue-500/20' : ''}
             `}
         >
-            <svg ref={svgRef} className="w-full h-full block touch-none" />
+            <svg 
+              ref={svgRef} 
+              className="w-full h-full block touch-none"
+              onMouseDown={handleSvgMouseDown}
+              onMouseMove={handleSvgMouseMove}
+              onMouseUp={handleSvgMouseUp}
+              onMouseLeave={handleSvgMouseUp}
+            />
             
             <div className="absolute bottom-6 right-6 bg-slate-900/90 backdrop-blur p-2 rounded-xl border border-slate-700 flex flex-col gap-3 items-center shadow-2xl z-10">
                  <ZoomIn size={14} className="text-slate-500" />
@@ -500,24 +470,20 @@ const RelationshipGraph: React.FC<Props> = ({
                     <span className="text-xs font-black text-slate-200 uppercase tracking-widest">{viewMode === 'people' ? '人物关系画布' : '物证逻辑画布'}</span>
                 </div>
                 
-                {mode === 'group' && (
-                  <div className="bg-yellow-900/40 backdrop-blur-md border border-yellow-500/30 px-3 py-2 rounded-lg shadow-2xl animate-in fade-in slide-in-from-left-1 flex flex-col gap-0.5">
-                    <span className="text-[9px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-1.5">
-                      <Layers size={10} /> 分组模式
+                {(mode === 'group' || mode === 'delete') && (
+                  <div className={`backdrop-blur-md border px-3 py-2 rounded-lg shadow-2xl animate-in fade-in slide-in-from-left-1 flex flex-col gap-0.5 ${mode === 'group' ? 'bg-yellow-900/40 border-yellow-500/30' : 'bg-red-900/40 border-red-500/30'}`}>
+                    <span className={`text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5 ${mode === 'group' ? 'text-yellow-500' : 'text-red-500'}`}>
+                      <MousePointer2 size={10} /> {mode === 'group' ? '框选分组' : '框选删除'}
                     </span>
-                    <span className="text-[10px] text-yellow-200/80 font-medium">点击选中人物或证物节点</span>
+                    <span className={`text-[10px] font-medium ${mode === 'group' ? 'text-yellow-200/80' : 'text-red-200/80'}`}>在空白处拖动左键进行多选</span>
                   </div>
                 )}
             </div>
 
-            <button 
-                onClick={() => setIsExpanded(!isExpanded)}
-                className="absolute top-6 right-6 p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl border border-slate-700 shadow-xl transition-all active:scale-95"
-            >
+            <button onClick={() => setIsExpanded(!isExpanded)} className="absolute top-6 right-6 p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl border border-slate-700 shadow-xl transition-all active:scale-95">
                 {isExpanded ? <Minimize size={20} /> : <Maximize size={20} />}
             </button>
 
-            {/* 修复：更小巧的分组确认悬浮窗 */}
             {mode === 'group' && selectedForGroup.size > 0 && (
                 <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-slate-900/95 border border-yellow-500/40 px-4 py-2.5 rounded-xl shadow-2xl animate-in slide-in-from-bottom-2 duration-300">
                     <div className="flex flex-col">
@@ -525,17 +491,10 @@ const RelationshipGraph: React.FC<Props> = ({
                         <div className="text-xs font-bold text-white leading-tight">{selectedForGroup.size} 项</div>
                     </div>
                     <div className="w-[1px] h-6 bg-slate-700 mx-1"></div>
-                    <button 
-                        onClick={() => setIsGroupModalOpen(true)}
-                        className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-1.5 rounded-lg text-xs font-black shadow-lg transition-all active:scale-95 flex items-center gap-1.5"
-                    >
+                    <button onClick={() => setIsGroupModalOpen(true)} className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-1.5 rounded-lg text-xs font-black shadow-lg transition-all active:scale-95 flex items-center gap-1.5">
                         <CheckCircle size={14} /> 创建分组
                     </button>
-                    <button 
-                        onClick={() => setSelectedForGroup(new Set())}
-                        className="p-2 text-slate-500 hover:text-red-400 transition-colors bg-slate-800/50 rounded-lg"
-                        title="清除选中"
-                    >
+                    <button onClick={() => setSelectedForGroup(new Set())} className="p-2 text-slate-500 hover:text-red-400 transition-colors bg-slate-800/50 rounded-lg" title="清除选中">
                         <Trash2 size={14} />
                     </button>
                 </div>
@@ -571,8 +530,14 @@ const RelationshipGraph: React.FC<Props> = ({
           <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
             <div className="bg-slate-800 rounded-3xl border border-red-900/50 shadow-2xl w-full max-w-sm overflow-hidden p-8 text-center animate-in zoom-in-95">
                 <div className="w-20 h-20 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/30 shadow-lg shadow-red-900/20"><AlertTriangle className="text-red-500" size={40} /></div>
-                <h3 className="text-xl font-black text-white mb-2 tracking-tight">确认删除?</h3>
-                <p className="text-slate-400 text-sm leading-relaxed mb-8">此操作将移除选定的数据模型且无法撤销。</p>
+                <h3 className="text-xl font-black text-white mb-2 tracking-tight">
+                  {pendingAction.type === 'bulk_delete' ? `批量删除 ${pendingAction.ids.length} 项?` : '确认删除?'}
+                </h3>
+                <p className="text-slate-400 text-sm leading-relaxed mb-8">
+                  {pendingAction.type === 'bulk_delete' 
+                    ? `将从画布中移除: ${pendingAction.names.slice(0,3).join(', ')}${pendingAction.names.length > 3 ? ' 等' : ''}。此操作无法撤销。`
+                    : '此操作将移除选定的数据模型且无法撤销。'}
+                </p>
                 <div className="flex flex-col gap-3">
                   <button onClick={confirmPendingAction} className="w-full py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl font-black shadow-xl transition-all active:scale-95">确认执行</button>
                   <button onClick={() => setPendingAction(null)} className="w-full py-4 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-2xl font-bold transition-all">返回</button>
@@ -618,14 +583,6 @@ const RelationshipGraph: React.FC<Props> = ({
                                       </div>
                                     );
                                 })}
-                            </div>
-                        </div>
-                        <div className="space-y-3">
-                            <label className="text-xs font-black text-slate-500 uppercase tracking-widest">可加入成员</label>
-                            <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar border border-slate-700 rounded-xl p-3 bg-slate-900/30">
-                                {[...characters, ...clues].filter(c => !editingGroup.characterIds.includes(c.id)).map(node => (
-                                    <button key={node.id} onClick={() => handleUpdateGroupMember(true, node.id)} className="flex items-center justify-between px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-transparent hover:border-slate-600 rounded-xl text-xs transition-all group"><span className="truncate text-slate-300 group-hover:text-white">{node.name}</span><Plus size={14} className="text-slate-500 group-hover:text-green-400" /></button>
-                                ))}
                             </div>
                         </div>
                     </div>
