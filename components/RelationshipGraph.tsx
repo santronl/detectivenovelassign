@@ -106,13 +106,13 @@ const RelationshipGraph: React.FC<Props> = ({
       }
   };
 
-  const handleUpdateGroupMember = (add: boolean, charId: string) => {
+  const handleUpdateGroupMember = (add: boolean, nodeId: string) => {
       if (!editingGroup) return;
       let newIds = [...editingGroup.characterIds];
       if (add) {
-          if (!newIds.includes(charId)) newIds.push(charId);
+          if (!newIds.includes(nodeId)) newIds.push(nodeId);
       } else {
-          newIds = newIds.filter(id => id !== charId);
+          newIds = newIds.filter(id => id !== nodeId);
       }
       
       const updated = { ...editingGroup, characterIds: newIds };
@@ -375,7 +375,7 @@ const RelationshipGraph: React.FC<Props> = ({
                 } else if (mode === 'connect') {
                     event.stopPropagation();
                     containerRef.current?.dispatchEvent(new CustomEvent('node-click', { detail: { id: d.id } }));
-                } else if (mode === 'group' && d.type === 'character') {
+                } else if (mode === 'group') {
                     event.stopPropagation();
                     setSelectedForGroup(prev => {
                         const next = new Set(prev);
@@ -395,7 +395,7 @@ const RelationshipGraph: React.FC<Props> = ({
             })
             .attr("fill", "#1e293b") 
             .attr("stroke", (d: any) => {
-                if (d.type === 'character' && mode === 'group' && selectedForGroup.has(d.id)) return '#facc15'; 
+                if (mode === 'group' && selectedForGroup.has(d.id)) return '#facc15'; 
                 if (d.id === selectedSource) return '#ef4444';
                 return d.type === 'character' ? '#3b82f6' : '#f59e0b';
             })
@@ -492,11 +492,11 @@ const RelationshipGraph: React.FC<Props> = ({
                 </div>
                 
                 {mode === 'group' && (
-                  <div className="bg-yellow-900/30 backdrop-blur-md border border-yellow-500/30 px-4 py-3 rounded-xl shadow-2xl animate-in fade-in slide-in-from-left-2 flex flex-col gap-1">
-                    <span className="text-[10px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-2">
-                      <Layers size={12} /> 分组模式
+                  <div className="bg-yellow-900/40 backdrop-blur-md border border-yellow-500/30 px-3 py-2 rounded-lg shadow-2xl animate-in fade-in slide-in-from-left-1 flex flex-col gap-0.5">
+                    <span className="text-[9px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-1.5">
+                      <Layers size={10} /> 分组模式
                     </span>
-                    <span className="text-[11px] text-yellow-200/80 font-medium">点击画布上的节点以选中/取消成员</span>
+                    <span className="text-[10px] text-yellow-200/80 font-medium">点击选中人物或证物节点</span>
                   </div>
                 )}
             </div>
@@ -508,26 +508,26 @@ const RelationshipGraph: React.FC<Props> = ({
                 {isExpanded ? <Minimize size={20} /> : <Maximize size={20} />}
             </button>
 
-            {/* 修复：分组确认悬浮窗 */}
+            {/* 修复：更小巧的分组确认悬浮窗 */}
             {mode === 'group' && selectedForGroup.size > 0 && (
-                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-4 bg-slate-900/95 border border-yellow-500/50 p-5 rounded-2xl shadow-2xl animate-in slide-in-from-bottom-4 duration-300">
+                <div className="absolute bottom-10 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-slate-900/95 border border-yellow-500/40 px-4 py-2.5 rounded-xl shadow-2xl animate-in slide-in-from-bottom-2 duration-300">
                     <div className="flex flex-col">
-                        <div className="text-xs font-black text-yellow-500 uppercase tracking-tighter">已选成员</div>
-                        <div className="text-sm font-bold text-white leading-tight">{selectedForGroup.size} 名侦探/嫌疑人</div>
+                        <div className="text-[9px] font-black text-yellow-500 uppercase tracking-tighter opacity-70">已选成员</div>
+                        <div className="text-xs font-bold text-white leading-tight">{selectedForGroup.size} 项</div>
                     </div>
-                    <div className="w-[1px] h-8 bg-slate-700 mx-2"></div>
+                    <div className="w-[1px] h-6 bg-slate-700 mx-1"></div>
                     <button 
                         onClick={() => setIsGroupModalOpen(true)}
-                        className="bg-yellow-600 hover:bg-yellow-500 text-white px-8 py-3 rounded-xl text-sm font-black shadow-xl shadow-yellow-900/20 transition-all active:scale-95 flex items-center gap-2"
+                        className="bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-1.5 rounded-lg text-xs font-black shadow-lg transition-all active:scale-95 flex items-center gap-1.5"
                     >
-                        <CheckCircle size={18} /> 正式创建阵营
+                        <CheckCircle size={14} /> 创建分组
                     </button>
                     <button 
                         onClick={() => setSelectedForGroup(new Set())}
-                        className="p-3 text-slate-500 hover:text-red-400 transition-colors bg-slate-800 rounded-xl"
+                        className="p-2 text-slate-500 hover:text-red-400 transition-colors bg-slate-800/50 rounded-lg"
                         title="清除选中"
                     >
-                        <Trash2 size={20} />
+                        <Trash2 size={14} />
                     </button>
                 </div>
             )}
@@ -537,7 +537,7 @@ const RelationshipGraph: React.FC<Props> = ({
             <div className="bg-slate-800 p-1 rounded-xl flex border border-slate-700 shadow-lg">
                 <button onClick={() => { setMode('move'); setSelectedSource(null); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'move' ? 'bg-slate-700 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}><Move size={18} /></button>
                 <button onClick={() => setMode('connect')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'connect' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'}`}><LinkIcon size={18} /></button>
-                {viewMode === 'people' && <button onClick={() => { setMode('group'); setSelectedForGroup(new Set()); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'group' ? 'bg-yellow-600 text-white shadow' : 'text-slate-400 hover:text-yellow-400'}`}><Layers size={18} /></button>}
+                <button onClick={() => { setMode('group'); setSelectedForGroup(new Set()); }} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'group' ? 'bg-yellow-600 text-white shadow' : 'text-slate-400 hover:text-yellow-400'}`}><Layers size={18} /></button>
                 <button onClick={() => setMode('delete')} className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${mode === 'delete' ? 'bg-red-600 text-white shadow' : 'text-slate-400 hover:text-red-400'}`}><Trash2 size={18} /></button>
             </div>
 
@@ -573,14 +573,13 @@ const RelationshipGraph: React.FC<Props> = ({
         )}
 
         {isGroupModalOpen && (
-            <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/80 backdrop-blur-sm rounded-lg p-4">
-                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
-                    <h3 className="text-lg font-black text-white mb-4 uppercase tracking-widest text-center">命名此阵营分组</h3>
-                    <p className="text-slate-500 text-xs text-center mb-6 italic">已选定 {selectedForGroup.size} 名成员加入该阵营</p>
-                    <input autoFocus value={newGroupLabel} onChange={(e) => setNewGroupLabel(e.target.value)} placeholder="如: 关东侦探团, 黑衣人组织..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-white mb-6 focus:ring-2 focus:ring-yellow-500 outline-none" onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()} />
-                    <div className="flex gap-3">
-                        <button onClick={() => setIsGroupModalOpen(false)} className="flex-1 py-3 text-sm text-slate-400 font-bold border border-slate-700 rounded-xl">返回重选</button>
-                        <button onClick={handleCreateGroup} className="flex-1 py-3 bg-yellow-600 hover:bg-yellow-500 text-white rounded-xl text-sm font-black shadow-lg">确定创建</button>
+            <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/70 backdrop-blur-sm rounded-lg p-4">
+                <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-[280px] shadow-2xl animate-in zoom-in-95">
+                    <h3 className="text-sm font-black text-white mb-3 uppercase tracking-widest text-center">命名分组</h3>
+                    <input autoFocus value={newGroupLabel} onChange={(e) => setNewGroupLabel(e.target.value)} placeholder="分组名称..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white mb-4 focus:ring-2 focus:ring-yellow-500 outline-none" onKeyDown={(e) => e.key === 'Enter' && handleCreateGroup()} />
+                    <div className="flex gap-2">
+                        <button onClick={() => setIsGroupModalOpen(false)} className="flex-1 py-2 text-xs text-slate-400 font-bold border border-slate-700 rounded-lg">取消</button>
+                        <button onClick={handleCreateGroup} className="flex-1 py-2 bg-yellow-600 hover:bg-yellow-500 text-white rounded-lg text-xs font-black shadow-lg">确定</button>
                     </div>
                 </div>
             </div>
@@ -601,19 +600,22 @@ const RelationshipGraph: React.FC<Props> = ({
                         <div className="space-y-3">
                             <label className="text-xs font-black text-slate-500 uppercase tracking-widest">当前成员</label>
                             <div className="flex flex-wrap gap-2">
-                                {editingGroup.characterIds.map(id => (
-                                    <div key={id} className="flex items-center gap-2 bg-slate-700/50 border border-slate-600 px-3 py-1.5 rounded-xl text-sm">
-                                        <span className="text-slate-200 font-bold">{characters.find(c => c.id === id)?.name || '未知'}</span>
-                                        <button onClick={() => handleUpdateGroupMember(false, id)} className="text-slate-500 hover:text-red-400"><X size={14} /></button>
-                                    </div>
-                                ))}
+                                {editingGroup.characterIds.map(id => {
+                                    const nodeName = characters.find(c => c.id === id)?.name || clues.find(c => c.id === id)?.name || '未知';
+                                    return (
+                                      <div key={id} className="flex items-center gap-2 bg-slate-700/50 border border-slate-600 px-3 py-1.5 rounded-xl text-sm">
+                                          <span className="text-slate-200 font-bold">{nodeName}</span>
+                                          <button onClick={() => handleUpdateGroupMember(false, id)} className="text-slate-500 hover:text-red-400"><X size={14} /></button>
+                                      </div>
+                                    );
+                                })}
                             </div>
                         </div>
                         <div className="space-y-3">
                             <label className="text-xs font-black text-slate-500 uppercase tracking-widest">可加入成员</label>
                             <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar border border-slate-700 rounded-xl p-3 bg-slate-900/30">
-                                {characters.filter(c => !editingGroup.characterIds.includes(c.id)).map(char => (
-                                    <button key={char.id} onClick={() => handleUpdateGroupMember(true, char.id)} className="flex items-center justify-between px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-transparent hover:border-slate-600 rounded-xl text-xs transition-all group"><span className="truncate text-slate-300 group-hover:text-white">{char.name}</span><Plus size={14} className="text-slate-500 group-hover:text-green-400" /></button>
+                                {[...characters, ...clues].filter(c => !editingGroup.characterIds.includes(c.id)).map(node => (
+                                    <button key={node.id} onClick={() => handleUpdateGroupMember(true, node.id)} className="flex items-center justify-between px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-transparent hover:border-slate-600 rounded-xl text-xs transition-all group"><span className="truncate text-slate-300 group-hover:text-white">{node.name}</span><Plus size={14} className="text-slate-500 group-hover:text-green-400" /></button>
                                 ))}
                             </div>
                         </div>
