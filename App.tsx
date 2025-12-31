@@ -137,38 +137,81 @@ const App: React.FC = () => {
 
   const exportArchive = async (isSaveAs: boolean) => {
     try {
+      setStatusMessage("正在打包档案...");
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
       const zip = new JSZip();
       zip.file("data.json", JSON.stringify(state, null, 2));
+      
       const imageIds = await getAllImageIdsFromDB();
       const imgFolder = zip.folder("images");
-      if (imgFolder) { for (const id of imageIds) { const b = await loadImageFromDB(id); if (b) imgFolder.file(id, b); } }
-      const content = await zip.generateAsync({ type: "blob" });
-      const fileName = state.lastFileName ? state.lastFileName.replace(/\.json$/, '.mind') : `mystery-${new Date().toISOString().slice(0,10)}.mind`;
-      if (fileHandle && !isSaveAs && !isIframe) {
-        const options = { mode: 'readwrite' as any };
-        if (await fileHandle.queryPermission(options) !== 'granted') { if (await fileHandle.requestPermission(options) !== 'granted') throw new Error('未获得写入权限'); }
-        const writable = await fileHandle.createWritable(); await writable.write(content); await writable.close();
-        setStatusMessage(`已同步保存至: ${fileHandle.name}`); return;
+      if (imgFolder) { 
+        for (const id of imageIds) { 
+          const b = await loadImageFromDB(id); 
+          if (b) imgFolder.file(id, b); 
+        } 
       }
-      if ('showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
+      
+      // 移动端使用通用的二进制流类型，防止浏览器篡改后缀
+      const blobType = isMobile ? "application/octet-stream" : "application/zip";
+      const content = await zip.generateAsync({ type: "blob", mimeType: blobType });
+      const fileName = state.lastFileName ? state.lastFileName.replace(/\.json$/, '.mind') : `mystery-${new Date().toISOString().slice(0,10)}.mind`;
+      
+      // 1. [仅PC] 尝试静默保存至已关联文件
+      if (fileHandle && !isSaveAs && !isIframe && !isMobile) {
         try {
-          const handle = await (window as any).showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'MysteryMind Bundle', accept: { 'application/zip': ['.mind'] } }] });
+          const options = { mode: 'readwrite' as any };
+          if (await fileHandle.queryPermission(options) !== 'granted') { if (await fileHandle.requestPermission(options) !== 'granted') throw new Error('未获得写入权限'); }
+          const writable = await fileHandle.createWritable(); await writable.write(content); await writable.close();
+          setStatusMessage(`已同步保存至: ${fileHandle.name}`); 
+          return;
+        } catch (fileErr) {
+          console.warn("文件句柄写入失败，回退到普通下载:", fileErr);
+        }
+      }
+
+      // 2. [仅PC] 尝试弹出原生保存对话框 (仅支持此 API 的桌面浏览器)
+      if (!isMobile && 'showSaveFilePicker' in window && window.isSecureContext && !isIframe) {
+        try {
+          const handle = await (window as any).showSaveFilePicker({ suggestedName: fileName, types: [{ description: 'MysteryMind Bundle', accept: { 'application/octet-stream': ['.mind'] } }] });
           const writable = await handle.createWritable(); await writable.write(content); await writable.close();
           setFileHandle(handle); saveFileHandle(handle); setState(prev => ({ ...prev, lastFileName: handle.name }));
-          setShowExportModal(false); setStatusMessage("档案打包并保存成功");
-        } catch (err: any) { if (err.name !== 'AbortError') throw err; }
-      } else {
-        const url = URL.createObjectURL(content); const link = document.createElement('a');
-        link.href = url; link.download = fileName; link.click(); URL.revokeObjectURL(url);
-        setShowExportModal(false); setStatusMessage("档案已下载 (.mind)");
+          setShowExportModal(false); setStatusMessage("档案保存成功");
+          return;
+        } catch (err: any) { 
+          if (err.name === 'AbortError') return;
+          console.warn("SaveFilePicker 失败，回退到普通下载:", err);
+        }
       }
-    } catch (err: any) { setErrorMessage(err.message || "档案保存失败"); }
+
+      // 3. [移动端 & 兜底] 模拟 FileSaver 下载逻辑
+      const url = URL.createObjectURL(content);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = fileName;
+      link.style.display = 'none';
+      
+      // 必须挂载到 DOM 才能在移动端 WebKit 环境下稳定触发
+      document.body.appendChild(link);
+      link.click();
+      
+      // 移动端需要给系统时间处理下载任务分发
+      setTimeout(() => {
+        document.body.removeChild(link);
+        // 延迟撤销 URL，防止在下载开始前资源失效
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }, 500);
+
+      setShowExportModal(false);
+      setStatusMessage(isMobile ? "正在存入手机下载文件夹" : "档案已导出至浏览器下载");
+    } catch (err: any) { 
+      setErrorMessage(err.message || "档案导出失败"); 
+    }
   };
 
   const handleImportFile = async (file: File) => {
     try {
       let parsedData: any;
-      if (file.name.endsWith('.mind') || file.type.includes('zip')) {
+      if (file.name.endsWith('.mind') || file.type.includes('zip') || file.type.includes('octet-stream')) {
         const zip = await JSZip.loadAsync(file);
         const dataFile = zip.file("data.json"); if (!dataFile) throw new Error("无效存档");
         parsedData = JSON.parse(await dataFile.async("string"));
@@ -181,8 +224,9 @@ const App: React.FC = () => {
   };
 
   const handleOpenFile = async () => {
-    if ('showOpenFilePicker' in window && window.isSecureContext && !isIframe) {
-      try { const [handle] = await (window as any).showOpenFilePicker({ types: [{ description: 'MM Archive', accept: { 'application/zip': ['.mind'], 'application/json': ['.json'] } }] });
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (!isMobile && 'showOpenFilePicker' in window && window.isSecureContext && !isIframe) {
+      try { const [handle] = await (window as any).showOpenFilePicker({ types: [{ description: 'MM Archive', accept: { 'application/zip': ['.mind'], 'application/json': ['.json'], 'application/octet-stream': ['.mind'] } }] });
       const file = await handle.getFile(); await handleImportFile(file); setFileHandle(handle); saveFileHandle(handle);
       } catch (err: any) { if (err.name !== 'AbortError') setErrorMessage("无法打开文件"); }
     } else { fileImportRef.current?.click(); }
