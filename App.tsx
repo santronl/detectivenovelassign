@@ -10,6 +10,7 @@ import LocationList from './components/LocationList';
 import MapCanvas from './components/MapCanvas';
 import TimelineVertical from './components/TimelineVertical';
 import ClueModal from './components/ClueModal';
+import DataExtractor from './components/DataExtractor'; // 新增
 import { saveToIndexedDB, loadFromIndexedDB, saveFileHandle, loadFileHandle, saveImageToDB, loadImageFromDB, getAllImageIdsFromDB, deleteImageFromDB, clearAllData } from './services/storage';
 import { compressImage } from './utils/imageProcessor';
 import { 
@@ -44,7 +45,9 @@ import {
   Clock,
   Layers,
   ChevronRight,
-  Settings2
+  Settings2,
+  Sparkles,
+  Zap
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -69,6 +72,9 @@ const App: React.FC = () => {
   const isIframe = window.self !== window.top;
   const [fileHandle, setFileHandle] = useState<any | null>(null);
   const fileImportRef = useRef<HTMLInputElement>(null);
+
+  // 智能提取器状态
+  const [isExtractorOpen, setIsExtractorOpen] = useState(false);
 
   // 分组编辑状态
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
@@ -441,10 +447,19 @@ const App: React.FC = () => {
 
       <main className="max-w-7xl mx-auto px-4 py-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
         <div className="lg:col-span-4 space-y-6">
-          <div className="bg-slate-800 rounded-xl p-5 border border-slate-700 shadow-lg">
-            <h2 className="font-bold text-white flex items-center gap-2 mb-4"><Database size={18} className="text-blue-400" />数据提取</h2>
-            <textarea className="w-full h-32 bg-slate-900 border border-slate-700 rounded-lg p-3 text-sm text-slate-300 focus:ring-2 focus:ring-blue-500/50 resize-none outline-none font-mono" placeholder="请逐行输入人物信息..." value={inputText} onChange={(e) => setInputText(e.target.value)} />
-            <div className="mt-4"><button onClick={() => { const ns = parseCharacterList(inputText); if(ns.length) setState(p=>({...p, characters: [...p.characters, ...ns]})); setInputText(''); setStatusMessage("已解析"); }} className="w-full bg-slate-700 hover:bg-slate-600 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all border border-slate-600 shadow-md"><Users size={16} /> 简单提取</button></div>
+          <div className="bg-slate-800 rounded-3xl p-6 border border-slate-700 shadow-2xl relative overflow-hidden group/ext">
+            <div className="absolute top-0 right-0 p-4 opacity-10 group-hover/ext:opacity-20 transition-opacity">
+                <Sparkles size={80} className="text-blue-500" />
+            </div>
+            <h2 className="font-black text-white flex items-center gap-2 mb-4 uppercase tracking-tighter text-lg"><Database size={20} className="text-blue-400" />结构化数据处理</h2>
+            <p className="text-xs text-slate-500 mb-6 font-medium leading-relaxed">通过智能映射工具，快速将粘贴的人物列表、线索清单转换为案情模型。</p>
+            <button 
+                onClick={() => setIsExtractorOpen(true)}
+                className="w-full group/btn relative flex items-center justify-center gap-3 py-4 bg-gradient-to-br from-blue-600 to-indigo-700 hover:from-blue-500 hover:to-indigo-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-900/30 transition-all active:scale-[0.98]"
+            >
+                <Zap size={18} className="group-hover/btn:animate-pulse" /> 开始智能提取
+                <div className="absolute inset-0 rounded-2xl border-2 border-white/10 group-hover/btn:border-white/20 transition-colors pointer-events-none"></div>
+            </button>
           </div>
 
           <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-lg overflow-hidden flex flex-col h-[600px]">
@@ -516,6 +531,7 @@ const App: React.FC = () => {
                 
                 <RelationshipGraph 
                   viewMode={state.graphSubTab}
+                  /* Fix: Removed non-existent function charIdInMap and used character ID directly */
                   characters={state.characters.filter(c => state.graphSubTab === 'people' ? state.graphActiveCharacterIds.includes(c.id) : state.itemGraphActiveIds.includes(c.id))} 
                   clues={state.graphSubTab === 'items' ? state.clues.filter(c => state.itemGraphActiveIds.includes(c.id)) : []}
                   relationships={state.graphSubTab === 'people' ? state.graphPeopleRelationships : state.graphItemRelationships} 
@@ -592,6 +608,16 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Modals */}
+      <DataExtractor 
+        isOpen={isExtractorOpen} 
+        onClose={() => setIsExtractorOpen(false)} 
+        onComplete={(newChars) => {
+            setState(p => ({ ...p, characters: [...p.characters, ...newChars] }));
+            setStatusMessage(`成功提取 ${newChars.length} 位角色模型`);
+        }} 
+      />
 
       <ClueModal isOpen={isClueModalOpen} editingClue={editingClue} locations={state.locations} blobUrls={blobUrls} onClose={() => { setIsClueModalOpen(false); setEditingClue(null); }} onSave={c => setState(p => ({ ...p, clues: p.clues.some(x => x.id === c.id) ? p.clues.map(x => x.id === c.id ? c : x) : [...p.clues, c] }))} onImageSave={handleEntityImageSave} />
       {showExportModal && <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300"><div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-sm overflow-hidden"><div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center"><h3 className="text-xl font-bold text-white flex items-center gap-3"><FileArchive className="text-blue-400" size={24} />打包导出</h3><button onClick={() => setShowExportModal(false)} className="text-slate-400 hover:text-white"><X size={24} /></button></div><div className="p-8 space-y-4"><p className="text-sm text-slate-400">我们将所有案情数据和图片文件打包为 .mind 文件。</p><button onClick={() => exportArchive(true)} className="w-full flex items-center justify-center gap-3 p-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl transition-all font-bold shadow-xl shadow-blue-900/20"><Save size={20} /> 打包导出 .mind</button></div></div></div>}
