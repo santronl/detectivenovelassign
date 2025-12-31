@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
   <head>
@@ -72,21 +71,6 @@
     </div>
 
     <div id="root"></div>
-
-    <!-- Script Error Handler -->
-    <script>
-        window.addEventListener('error', function(e) {
-            var banner = document.getElementById('startup-error');
-            var msg = document.getElementById('error-message');
-            if (banner && msg) {
-                if (!document.getElementById('root').hasChildNodes()) {
-                    banner.style.display = 'block';
-                    msg.innerText = "Error: " + e.message + "\n(File: " + e.filename + ")";
-                }
-            }
-        });
-    </script>
-    
     <script type="module" src="/index.tsx"></script>
   </body>
 </html>
