@@ -458,7 +458,7 @@ const App: React.FC = () => {
             }
         }} 
         style={{ borderLeft: primaryGroup ? `4px solid ${primaryGroup.color}` : '4px solid transparent', backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.15)' : (primaryGroup ? `${primaryGroup.color}10` : 'rgb(51 65 85 / 0.5)') }} 
-        className={`flex items-start justify-between p-2.5 rounded-r-xl border transition-all group shadow-sm ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-700 hover:border-slate-500'} ${isCurrentlyActive ? 'opacity-40 border-dashed cursor-default grayscale-[0.8]' : 'cursor-grab active:cursor-grabbing'}`}
+        className={`flex items-start justify-between p-2.5 rounded-r-xl border transition-all shadow-sm ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-700 hover:border-slate-500'} ${isCurrentlyActive ? 'opacity-40 border-dashed cursor-default grayscale-[0.8]' : 'cursor-grab active:cursor-grabbing'}`}
       >
         <div className="flex items-start gap-2.5 truncate flex-1">
           <div onClick={(e) => { e.stopPropagation(); if(!isCurrentlyActive) toggleSidebarSelection(char.id); }} className={`mt-1 shrink-0 ${isCurrentlyActive ? 'cursor-not-allowed opacity-20' : 'cursor-pointer'}`}>
@@ -805,6 +805,7 @@ const App: React.FC = () => {
                     customOrder={state.familyCustomOrder || {}}
                     blobUrls={blobUrls}
                     onAddFamilyLink={l => setState(p => ({ ...p, familyLinks: [...(p.familyLinks || []), l] }))}
+                    onUpdateFamilyLink={l => setState(p => ({ ...p, familyLinks: (p.familyLinks || []).map(x => x.id === l.id ? l : x) }))}
                     onRemoveFamilyLink={id => setState(p => ({ ...p, familyLinks: (p.familyLinks || []).filter(l => l.id !== id) }))}
                     onAddActiveChar={id => setState(p => ({ ...p, familyActiveCharIds: [...new Set([...(p.familyActiveCharIds || []), id])] }))}
                     onRemoveActiveChar={id => setState(p => ({
@@ -861,14 +862,14 @@ const App: React.FC = () => {
 
       {isBatchGroupModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-sm overflow-hidden animate-in zoom-in-95">
               <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
                 <h3 className="font-bold text-white flex items-center gap-2"><Layers size={18} className="text-blue-400" /> 批量归类 ({selectedSidebarCharIds.size} 人)</h3>
                 <button onClick={() => setIsBatchGroupModalOpen(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
               </div>
               <div className="p-6 space-y-3">
                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mb-4">请选择目标分组</p>
-                 <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                 <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar p-1">
                     {(state.characterGroups || []).map(g => (
                         <button key={g.id} onClick={() => handleBatchGroup(g.id)} className="w-full text-left p-3 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-700 hover:border-blue-500/50 transition-all flex items-center justify-between group">
                             <div className="flex items-center gap-3">

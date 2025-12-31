@@ -13,10 +13,11 @@ export interface Character {
 
 export interface FamilyLink {
   id: string;
-  type: 'marriage' | 'parent_child';
-  partners?: string[]; // Array of character IDs for marriage
+  type: 'marriage' | 'parent_child' | 'other_same_level'; // 新增：同一水平线的其他关系
+  partners?: string[]; // Array of character IDs for marriage or same-level links
   parents?: string[];  // Array of parent character IDs
   child?: string;      // Character ID of the child
+  label?: string;      // 新增：关系的自定义标签
 }
 
 export interface Relationship {
