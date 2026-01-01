@@ -2,12 +2,14 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { Character, Relationship, RelationshipDef, CharacterGroup, Clue } from '../types';
-import { Move, Trash2, Users, Maximize, Package, Link as LinkIcon, X, Check, MousePointer2, Layers, Grid, Palette, Type, Ungroup, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Move, Trash2, Users, Maximize, Package, Link as LinkIcon, X, Check, MousePointer2, Layers, Grid, Palette, Type, Ungroup, AlertCircle, CheckCircle2, Search, Minimize, GripVertical, User } from 'lucide-react';
 
 interface Props {
   viewMode: 'people' | 'items';
-  characters: Character[];
-  clues: Clue[]; 
+  characters: Character[]; // Active characters on graph
+  clues: Clue[];           // Active clues on graph
+  allCharacters: Character[]; // All available characters (for sidebar)
+  allClues: Clue[];           // All available clues (for sidebar)
   relationships: Relationship[];
   relationshipDefs: RelationshipDef[];
   characterGroups: CharacterGroup[];
@@ -25,7 +27,7 @@ interface Props {
 }
 
 const RelationshipGraph: React.FC<Props> = ({ 
-    viewMode, characters, clues, relationships, relationshipDefs, characterGroups, layout = {}, blobUrls,
+    viewMode, characters, clues, allCharacters, allClues, relationships, relationshipDefs, characterGroups, layout = {}, blobUrls,
     onAddRelationship, onRemoveRelationship, onNodeDrop, onUpdateLayout, onRemoveNode, onUpdateDefs, onAddGroup, onUpdateGroup
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -36,15 +38,9 @@ const RelationshipGraph: React.FC<Props> = ({
   
   // Selection State
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
-  // Use Ref to access latest selection in D3 handlers without re-binding
   const selectedNodeIdsRef = useRef(selectedNodeIds);
   const [selectionBox, setSelectionBox] = useState<{ x: number, y: number, width: number, height: number } | null>(null);
   const dragStartPos = useRef<{x: number, y: number} | null>(null);
-
-  // Sync Ref
-  useEffect(() => {
-    selectedNodeIdsRef.current = selectedNodeIds;
-  }, [selectedNodeIds]);
 
   // Connection State
   const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
@@ -59,6 +55,15 @@ const RelationshipGraph: React.FC<Props> = ({
   const [pendingGroupIds, setPendingGroupIds] = useState<string[]>([]);
   const [excludedCount, setExcludedCount] = useState(0);
 
+  // Expanded Sidebar State
+  const [sidebarTab, setSidebarTab] = useState<'characters' | 'clues'>('characters');
+  const [sidebarSearch, setSidebarSearch] = useState("");
+
+  // Sync Ref
+  useEffect(() => {
+    selectedNodeIdsRef.current = selectedNodeIds;
+  }, [selectedNodeIds]);
+
   const getDefByLabel = (label: string) => relationshipDefs.find(d => d.label === label);
 
   const getGroupColor = (id: string, isClue: boolean) => {
@@ -67,9 +72,9 @@ const RelationshipGraph: React.FC<Props> = ({
     return isClue ? '#f59e0b' : '#3b82f6';
   };
 
+  // ... (Interaction Handlers omitted for brevity, logic remains same) ...
   const handleNodeClick = (e: any, id: string, type: 'character' | 'clue') => {
-    e.stopPropagation(); // Prevent canvas click
-
+    e.stopPropagation();
     if (mode === 'delete') {
         onRemoveNode(id, type);
     } else if (mode === 'connect') {
@@ -94,11 +99,9 @@ const RelationshipGraph: React.FC<Props> = ({
                 return next;
             });
         } else {
-             // If clicking an unselected node without Ctrl, select only it
              if (!selectedNodeIds.has(id)) {
                  setSelectedNodeIds(new Set([id]));
              }
-             // If clicking an ALREADY selected node without ctrl, do nothing (wait for drag)
         }
     }
   };
@@ -106,7 +109,6 @@ const RelationshipGraph: React.FC<Props> = ({
   const confirmConnection = () => {
       if (linkModalData && newRelLabel.trim()) {
           onAddRelationship(linkModalData.sourceId, linkModalData.targetId, newRelLabel.trim());
-          
           const exists = relationshipDefs.some(d => d.label === newRelLabel.trim());
           if (!exists) {
               onUpdateDefs([...relationshipDefs, { 
@@ -122,17 +124,12 @@ const RelationshipGraph: React.FC<Props> = ({
   const handleOpenGroupModal = () => {
       const allSelected = Array.from(selectedNodeIds) as string[];
       let validIds: string[] = [];
-
       if (viewMode === 'items') {
-          // Evidence Logic Chain: Only allow clues to be grouped
           validIds = allSelected.filter(id => clues.some(c => c.id === id));
       } else {
-          // People Graph: Only allow characters to be grouped
           validIds = allSelected.filter(id => characters.some(c => c.id === id));
       }
-
       if (validIds.length === 0) return;
-      
       setPendingGroupIds(validIds);
       setExcludedCount(allSelected.length - validIds.length);
       setNewGroupName("新建分组");
@@ -142,7 +139,6 @@ const RelationshipGraph: React.FC<Props> = ({
 
   const handleConfirmCreateGroup = () => {
       if (pendingGroupIds.length === 0 || !newGroupName.trim()) return;
-
       onAddGroup({
           id: crypto.randomUUID(),
           label: newGroupName.trim(),
@@ -155,14 +151,11 @@ const RelationshipGraph: React.FC<Props> = ({
 
   const handleRemoveFromGroup = () => {
       let updated = false;
-      // Also respect the view mode restriction for removing
       const idsToRemove = viewMode === 'items' 
           ? Array.from(selectedNodeIds).filter(id => clues.some(c => c.id === id))
           : Array.from(selectedNodeIds).filter(id => characters.some(c => c.id === id));
-
       if (idsToRemove.length === 0) return;
       const idsSet = new Set(idsToRemove);
-
       characterGroups.forEach(g => {
           if (g.characterIds.some(id => idsSet.has(id))) {
               const newIds = g.characterIds.filter(id => !idsSet.has(id));
@@ -183,134 +176,78 @@ const RelationshipGraph: React.FC<Props> = ({
       setSelectedNodeIds(new Set());
   };
 
-  // Canvas Click (Background)
   const handleCanvasClick = (e: React.MouseEvent) => {
       if (mode === 'connect') {
           setConnectingSourceId(null);
       }
-      // Note: Selection clearing for 'select' mode is handled in mousedown.select logic
-      // to avoid conflict with drag-selection (which triggers click event at the end).
   };
 
-  // Initialization
+  // Initialization & D3 Logic (Same as before)
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
-    
-    // Add Defs for ClipPath
     if (svg.select("defs").empty()) {
       const defs = svg.append("defs");
-      defs.append("clipPath")
-        .attr("id", "node-avatar-clip")
-        .append("circle")
-        .attr("r", 26)
-        .attr("cx", 0)
-        .attr("cy", 0);
+      defs.append("clipPath").attr("id", "node-avatar-clip").append("circle").attr("r", 26).attr("cx", 0).attr("cy", 0);
     }
-
     if (svg.select(".content").empty()) {
       const g = svg.append("g").attr("class", "content");
-      g.append("g").attr("class", "groups-layer"); // Add Groups layer at the bottom
+      g.append("g").attr("class", "groups-layer");
       g.append("g").attr("class", "links-layer");
       g.append("g").attr("class", "link-labels-layer");
       g.append("g").attr("class", "nodes-layer");
-      g.append("rect").attr("class", "selection-rect")
-       .attr("fill", "rgba(59, 130, 246, 0.1)")
-       .attr("stroke", "#3b82f6")
-       .attr("stroke-width", 1)
-       .attr("stroke-dasharray", "4,2")
-       .style("pointer-events", "none")
-       .style("display", "none");
+      g.append("rect").attr("class", "selection-rect").attr("fill", "rgba(59, 130, 246, 0.1)").attr("stroke", "#3b82f6").attr("stroke-width", 1).attr("stroke-dasharray", "4,2").style("pointer-events", "none").style("display", "none");
     }
   }, []);
 
-  // Mode & Zoom Handling
   useEffect(() => {
     if (!svgRef.current) return;
     const svg = d3.select(svgRef.current);
     const g = svg.select<SVGGElement>(".content");
-
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 8])
-      .on("zoom", (e) => g.attr("transform", e.transform));
+    const zoom = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.1, 8]).on("zoom", (e) => g.attr("transform", e.transform));
 
     if (mode === 'select') {
-        // Disable Zoom Panning on left click, allow scrolling/wheel
-        svg.on(".zoom", null); // Remove previous listeners
-        
-        // Re-apply zoom but filter out left-click mousedown to allow drag selection
+        svg.on(".zoom", null);
         zoom.filter((event) => {
-             // Allow wheel zooming
              if (event.type === 'wheel') return true;
              return !event.button && event.type !== 'mousedown'; 
         });
         svg.call(zoom);
-
+        
         // Selection Box Logic
         svg.on("mousedown.select", (event) => {
-            if (event.button !== 0) return; // Only left click
-            // If target is a node, don't start box
+            if (event.button !== 0) return;
             if (event.target.closest(".node-item")) return;
-            
             const transform = d3.zoomTransform(svg.node()!);
             const [x, y] = d3.pointer(event);
-            // Transform screen coords to graph coords
             const gx = (x - transform.x) / transform.k;
             const gy = (y - transform.y) / transform.k;
-            
             dragStartPos.current = { x: gx, y: gy };
             setSelectionBox({ x: gx, y: gy, width: 0, height: 0 });
-            
-            if (!event.ctrlKey && !event.metaKey) {
-                setSelectedNodeIds(new Set());
-            }
+            if (!event.ctrlKey && !event.metaKey) setSelectedNodeIds(new Set());
         });
-
         svg.on("mousemove.select", (event) => {
             if (!dragStartPos.current) return;
             const transform = d3.zoomTransform(svg.node()!);
             const [x, y] = d3.pointer(event);
             const gx = (x - transform.x) / transform.k;
             const gy = (y - transform.y) / transform.k;
-
             const start = dragStartPos.current;
-            const minX = Math.min(start.x, gx);
-            const minY = Math.min(start.y, gy);
-            const width = Math.abs(gx - start.x);
-            const height = Math.abs(gy - start.y);
-
-            setSelectionBox({ x: minX, y: minY, width, height });
+            setSelectionBox({ x: Math.min(start.x, gx), y: Math.min(start.y, gy), width: Math.abs(gx - start.x), height: Math.abs(gy - start.y) });
         });
-
         svg.on("mouseup.select", (event) => {
              if (dragStartPos.current) {
-                 // Recalculate box to ensure we have latest data
                  const transform = d3.zoomTransform(svg.node()!);
                  const [x, y] = d3.pointer(event);
                  const gx = (x - transform.x) / transform.k;
                  const gy = (y - transform.y) / transform.k;
-
                  const start = dragStartPos.current;
-                 const minX = Math.min(start.x, gx);
-                 const maxX = Math.max(start.x, gx);
-                 const minY = Math.min(start.y, gy);
-                 const maxY = Math.max(start.y, gy);
-
-                 // Use Ref to get current selection (avoids stale closure)
-                 const currentSelection = (event.ctrlKey || event.metaKey) 
-                    ? new Set(selectedNodeIdsRef.current) 
-                    : new Set<string>();
-
-                 const width = maxX - minX;
-                 const height = maxY - minY;
-
-                 // Only select if box has some size (avoid selecting on tiny jitters/clicks)
-                 if (width > 1 || height > 1) {
+                 const minX = Math.min(start.x, gx); const maxX = Math.max(start.x, gx);
+                 const minY = Math.min(start.y, gy); const maxY = Math.max(start.y, gy);
+                 const currentSelection = (event.ctrlKey || event.metaKey) ? new Set(selectedNodeIdsRef.current) : new Set<string>();
+                 if (maxX - minX > 1 || maxY - minY > 1) {
                      nodesRef.current.forEach(node => {
-                         // Check intersection (simple center check)
-                         if (node.x >= minX && node.x <= maxX && node.y >= minY && node.y <= maxY) {
-                             currentSelection.add(node.id);
-                         }
+                         if (node.x >= minX && node.x <= maxX && node.y >= minY && node.y <= maxY) currentSelection.add(node.id);
                      });
                      setSelectedNodeIds(currentSelection);
                  }
@@ -318,43 +255,29 @@ const RelationshipGraph: React.FC<Props> = ({
              dragStartPos.current = null;
              setSelectionBox(null);
         });
-
     } else {
-        // Enable full zoom/pan for Move/Delete/Connect modes
         svg.on(".select", null);
         zoom.filter((event) => !event.ctrlKey && !event.button);
         svg.call(zoom);
         setSelectionBox(null);
     }
+  }, [mode]);
 
-  }, [mode]); // Removed selectedNodeIds to prevent re-binding listeners during interaction
-
-  // Update Selection Box Visual
   useEffect(() => {
       if (!svgRef.current) return;
       const svg = d3.select(svgRef.current);
       const rect = svg.select(".selection-rect");
-      
       if (selectionBox) {
-          rect.style("display", "block")
-              .attr("x", selectionBox.x)
-              .attr("y", selectionBox.y)
-              .attr("width", selectionBox.width)
-              .attr("height", selectionBox.height);
+          rect.style("display", "block").attr("x", selectionBox.x).attr("y", selectionBox.y).attr("width", selectionBox.width).attr("height", selectionBox.height);
       } else {
           rect.style("display", "none");
       }
   }, [selectionBox]);
 
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-  };
-
+  const handleDragOver = (e: React.DragEvent) => e.preventDefault();
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     if (!containerRef.current || !svgRef.current) return;
-
     const rect = containerRef.current.getBoundingClientRect();
     const transform = d3.zoomTransform(svgRef.current);
     const dropX = (e.clientX - rect.left - transform.x) / transform.k;
@@ -383,23 +306,9 @@ const RelationshipGraph: React.FC<Props> = ({
     const width = containerRef.current.clientWidth;
     const height = containerRef.current.clientHeight;
 
-    // --- Update Marker Defs ---
     const defs = svg.select("defs");
-    defs.selectAll("marker.link-arrow")
-        .data(relationshipDefs, (d: any) => d.id)
-        .join(
-            enter => enter.append("marker")
-                .attr("class", "link-arrow")
-                .attr("id", d => `arrow-${d.id}`)
-                .attr("viewBox", "0 -5 10 10")
-                .attr("refX", 7) 
-                .attr("refY", 0)
-                .attr("markerWidth", 5)
-                .attr("markerHeight", 5)
-                .attr("orient", "auto")
-                .append("path")
-                .attr("d", "M0,-5L10,0L0,5")
-                .attr("fill", d => d.color),
+    defs.selectAll("marker.link-arrow").data(relationshipDefs, (d: any) => d.id).join(
+            enter => enter.append("marker").attr("class", "link-arrow").attr("id", d => `arrow-${d.id}`).attr("viewBox", "0 -5 10 10").attr("refX", 7).attr("refY", 0).attr("markerWidth", 5).attr("markerHeight", 5).attr("orient", "auto").append("path").attr("d", "M0,-5L10,0L0,5").attr("fill", d => d.color),
             update => update.select("path").attr("fill", d => d.color),
             exit => exit.remove()
         );
@@ -414,15 +323,11 @@ const RelationshipGraph: React.FC<Props> = ({
       : finalNodes;
 
     nodesRef.current = displayNodes;
-
     const activeIds = new Set(displayNodes.map(n => n.id));
     const links = relationships.filter(r => activeIds.has(r.source) && activeIds.has(r.target));
     const getNode = (id: string) => displayNodes.find(n => n.id === id);
 
-    // --- Group Layer (Bottom) ---
     const layerGroups = g.select(".groups-layer");
-    
-    // Calculate hull/blob for each group
     const groupsToRender = characterGroups.map(group => {
         const groupNodes = displayNodes.filter(n => group.characterIds.includes(n.id));
         if (groupNodes.length === 0) return null;
@@ -432,302 +337,197 @@ const RelationshipGraph: React.FC<Props> = ({
     const getGroupPath = (nodes: any[]) => {
         if (nodes.length === 0) return "";
         const points: [number, number][] = nodes.map(n => [n.x, n.y]);
-        
-        if (nodes.length === 1) {
-            // Draw a small circle path around the point
-            const p = points[0];
-            return `M ${p[0]} ${p[1]} L ${p[0] + 0.01} ${p[1]}`;
-        }
-        if (nodes.length === 2) {
-            // Draw a line connecting them (stroke width will make it a pill)
-            return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`;
-        }
+        if (nodes.length === 1) { const p = points[0]; return `M ${p[0]} ${p[1]} L ${p[0] + 0.01} ${p[1]}`; }
+        if (nodes.length === 2) { return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`; }
         const hull = d3.polygonHull(points);
-        if (!hull) return d3.line()(points); // Fallback if hull fails (e.g. collinear)
+        if (!hull) return d3.line()(points);
         return d3.line().curve(d3.curveCatmullRomClosed)(hull);
     };
 
-    layerGroups.selectAll("path.group-hull")
-        .data(groupsToRender, (d: any) => d.group.id)
-        .join(
-            enter => enter.append("path")
-                .attr("class", "group-hull")
-                .attr("fill", "none")
-                .attr("stroke-linejoin", "round")
-                .attr("stroke-linecap", "round")
-                .style("pointer-events", "none"),
+    layerGroups.selectAll("path.group-hull").data(groupsToRender, (d: any) => d.group.id).join(
+            enter => enter.append("path").attr("class", "group-hull").attr("fill", "none").attr("stroke-linejoin", "round").attr("stroke-linecap", "round").style("pointer-events", "none"),
             update => update,
             exit => exit.remove()
-        )
-        .attr("d", d => getGroupPath(d.nodes))
-        .attr("stroke", d => d.group.color)
-        .attr("stroke-width", 90) // Thick stroke creates the "blob" area
-        .attr("opacity", 0.15); // Semi-transparent
+        ).attr("d", d => getGroupPath(d.nodes)).attr("stroke", d => d.group.color).attr("stroke-width", 90).attr("opacity", 0.15);
 
-    // --- 连线层 ---
     const layerLinks = g.select(".links-layer");
     layerLinks.selectAll("path.link-path").data(links, (d: any) => `${d.source}-${d.target}-${d.relation}`).join("path")
-      .attr("class", "link-path")
-      .attr("fill", "none")
-      .attr("stroke", d => getDefByLabel(d.relation)?.color || '#6366f1')
-      .attr("stroke-width", 3)
-      .attr("stroke-opacity", 0.8)
-      .attr("marker-end", d => {
-          const def = getDefByLabel(d.relation);
-          return def ? `url(#arrow-${def.id})` : null;
-      })
+      .attr("class", "link-path").attr("fill", "none").attr("stroke", d => getDefByLabel(d.relation)?.color || '#6366f1').attr("stroke-width", 3).attr("stroke-opacity", 0.8)
+      .attr("marker-end", d => { const def = getDefByLabel(d.relation); return def ? `url(#arrow-${def.id})` : null; })
       .attr("d", d => {
-        const s = getNode(d.source);
-        const t = getNode(d.target);
+        const s = getNode(d.source); const t = getNode(d.target);
         if (!s || !t) return "";
         const r = 32;
-        const dx = t.x - s.x;
-        const dy = t.y - s.y;
+        const dx = t.x - s.x; const dy = t.y - s.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         if (dist === 0) return "";
-        const tx = t.x - (dx / dist) * r;
-        const ty = t.y - (dy / dist) * r;
-        const sx = s.x + (dx / dist) * r;
-        const sy = s.y + (dy / dist) * r;
+        const tx = t.x - (dx / dist) * r; const ty = t.y - (dy / dist) * r;
+        const sx = s.x + (dx / dist) * r; const sy = s.y + (dy / dist) * r;
         return `M ${sx},${sy} L ${tx},${ty}`;
       });
 
-    // --- 连线标签层 ---
     const layerLinkLabels = g.select(".link-labels-layer");
-    const labels = layerLinkLabels.selectAll("g.link-label-group")
-        .data(links, (d: any) => `${d.source}-${d.target}-${d.relation}`)
-        .join(
+    const labels = layerLinkLabels.selectAll("g.link-label-group").data(links, (d: any) => `${d.source}-${d.target}-${d.relation}`).join(
             enter => {
                 const group = enter.append("g").attr("class", "link-label-group").style("cursor", "pointer");
-                group.append("rect")
-                    .attr("rx", 6)
-                    .attr("ry", 6)
-                    .attr("fill", "#0f172a")
-                    .attr("stroke-width", 1.5);
-                group.append("text")
-                    .attr("text-anchor", "middle")
-                    .attr("dy", ".35em")
-                    .attr("font-size", "9px")
-                    .attr("font-weight", "bold");
+                group.append("rect").attr("rx", 6).attr("ry", 6).attr("fill", "#0f172a").attr("stroke-width", 1.5);
+                group.append("text").attr("text-anchor", "middle").attr("dy", ".35em").attr("font-size", "9px").attr("font-weight", "bold");
                 return group;
             }
         );
 
     labels.each(function(d) {
-        const s = getNode(d.source);
-        const t = getNode(d.target);
-        const def = getDefByLabel(d.relation);
-        const color = def?.color || '#6366f1';
-        
+        const s = getNode(d.source); const t = getNode(d.target);
+        const def = getDefByLabel(d.relation); const color = def?.color || '#6366f1';
         if (!s || !t) return;
-        
         const sel = d3.select(this);
-        const text = sel.select("text");
-        const rect = sel.select("rect");
-        
+        const text = sel.select("text"); const rect = sel.select("rect");
         text.text(d.relation).attr("fill", color);
-        
         const bbox = (text.node() as SVGTextElement).getBBox();
-        const padX = 8;
-        const padY = 4;
-        
-        rect.attr("width", bbox.width + padX * 2)
-            .attr("height", bbox.height + padY * 2)
-            .attr("x", -(bbox.width + padX * 2) / 2)
-            .attr("y", -(bbox.height + padY * 2) / 2)
-            .attr("stroke", color);
-
-        const midX = (s.x + t.x) / 2;
-        const midY = (s.y + t.y) / 2;
-        sel.attr("transform", `translate(${midX},${midY})`);
-        
-        sel.on("click", (e) => {
-            e.stopPropagation();
-            if (mode === 'delete') {
-                onRemoveRelationship(d.source, d.target, d.relation);
-            }
-        });
+        rect.attr("width", bbox.width + 16).attr("height", bbox.height + 8).attr("x", -(bbox.width + 16) / 2).attr("y", -(bbox.height + 8) / 2).attr("stroke", color);
+        sel.attr("transform", `translate(${(s.x + t.x) / 2},${(s.y + t.y) / 2})`).on("click", (e) => { e.stopPropagation(); if (mode === 'delete') onRemoveRelationship(d.source, d.target, d.relation); });
     });
 
-    // --- 节点层 ---
     const layerNodes = g.select(".nodes-layer");
     const node = layerNodes.selectAll<SVGGElement, any>("g.node-item").data(displayNodes, (d: any) => d.id).join(
       enter => {
         const nodeG = enter.append("g").attr("class", "node-item");
-        
-        // Active Selection Ring
-        nodeG.append("circle")
-           .attr("class", "node-select-ring")
-           .attr("r", 34)
-           .attr("fill", "none")
-           .attr("stroke", "#ffffff")
-           .attr("stroke-width", 2)
-           .attr("stroke-dasharray", "4,2")
-           .attr("opacity", 0);
-
-        nodeG.append("circle")
-          .attr("r", 26)
-          .attr("fill", "#0f172a")
-          .attr("class", "node-bg");
-
-        nodeG.append("image")
-          .attr("x", -26)
-          .attr("y", -26)
-          .attr("width", 52)
-          .attr("height", 52)
-          .attr("preserveAspectRatio", "xMidYMid slice")
-          .attr("clip-path", "url(#node-avatar-clip)")
-          .attr("class", "node-img");
-
-        nodeG.append("circle")
-          .attr("r", 26)
-          .attr("fill", "none")
-          .attr("stroke-width", 3)
-          .attr("class", "node-border");
-        
-        nodeG.append("text")
-          .attr("class", "node-icon")
-          .attr("dy", ".35em")
-          .attr("text-anchor", "middle")
-          .attr("fill", "rgba(255,255,255,0.8)")
-          .attr("font-size", "14px")
-          .attr("font-weight", "bold")
-          .style("pointer-events", "none");
-
-        nodeG.append("text")
-            .attr("class", "node-label")
-            .attr("y", 42) 
-            .attr("text-anchor", "middle")
-            .attr("fill", "#e2e8f0")
-            .attr("font-size", "11px")
-            .attr("font-weight", "bold")
-            .style("text-shadow", "0 2px 4px rgba(0,0,0,0.9)")
-            .style("pointer-events", "none");
-
+        nodeG.append("circle").attr("class", "node-select-ring").attr("r", 34).attr("fill", "none").attr("stroke", "#ffffff").attr("stroke-width", 2).attr("stroke-dasharray", "4,2").attr("opacity", 0);
+        nodeG.append("circle").attr("r", 26).attr("fill", "#0f172a").attr("class", "node-bg");
+        nodeG.append("image").attr("x", -26).attr("y", -26).attr("width", 52).attr("height", 52).attr("preserveAspectRatio", "xMidYMid slice").attr("clip-path", "url(#node-avatar-clip)").attr("class", "node-img");
+        nodeG.append("circle").attr("r", 26).attr("fill", "none").attr("stroke-width", 3).attr("class", "node-border");
+        nodeG.append("text").attr("class", "node-icon").attr("dy", ".35em").attr("text-anchor", "middle").attr("fill", "rgba(255,255,255,0.8)").attr("font-size", "14px").attr("font-weight", "bold").style("pointer-events", "none");
+        nodeG.append("text").attr("class", "node-label").attr("y", 42).attr("text-anchor", "middle").attr("fill", "#e2e8f0").attr("font-size", "11px").attr("font-weight", "bold").style("text-shadow", "0 2px 4px rgba(0,0,0,0.9)").style("pointer-events", "none");
         return nodeG;
       }
-    )
-    .attr("transform", d => `translate(${d.x},${d.y})`)
-    .style("cursor", (mode === 'move' || mode === 'select') ? "grab" : "pointer")
-    .on("click", (e, d: any) => handleNodeClick(e, d.id, d.isClue ? 'clue' : 'character'));
+    ).attr("transform", d => `translate(${d.x},${d.y})`).style("cursor", (mode === 'move' || mode === 'select') ? "grab" : "pointer").on("click", (e, d: any) => handleNodeClick(e, d.id, d.isClue ? 'clue' : 'character'));
 
-    node.select(".node-border")
-        .attr("stroke", d => getGroupColor(d.id, (d as any).isClue));
-    
-    // Update Selection/Connecting Ring
-    node.select(".node-select-ring")
-        .attr("opacity", d => (d.id === connectingSourceId || selectedNodeIds.has(d.id)) ? 1 : 0)
-        .attr("stroke", d => d.id === connectingSourceId ? "#60a5fa" : (selectedNodeIds.has(d.id) ? "#3b82f6" : "none"))
-        .attr("class", d => d.id === connectingSourceId ? "node-select-ring animate-pulse" : "node-select-ring")
-        .attr("stroke-width", d => selectedNodeIds.has(d.id) ? 3 : 2)
-        .attr("stroke-dasharray", d => d.id === connectingSourceId ? "4,2" : "none");
-
-    node.select(".node-img")
-        .attr("href", d => (d as any).imageId ? blobUrls[(d as any).imageId] : "")
-        .style("display", d => (d as any).imageId && blobUrls[(d as any).imageId] ? "block" : "none");
-
-    node.select(".node-icon")
-        .text(d => (d as any).isClue ? '📦' : d.name.slice(0, 1))
-        .style("display", d => (d as any).imageId && blobUrls[(d as any).imageId] ? "none" : "block");
-
+    node.select(".node-border").attr("stroke", d => getGroupColor(d.id, (d as any).isClue));
+    node.select(".node-select-ring").attr("opacity", d => (d.id === connectingSourceId || selectedNodeIds.has(d.id)) ? 1 : 0).attr("stroke", d => d.id === connectingSourceId ? "#60a5fa" : (selectedNodeIds.has(d.id) ? "#3b82f6" : "none")).attr("class", d => d.id === connectingSourceId ? "node-select-ring animate-pulse" : "node-select-ring").attr("stroke-width", d => selectedNodeIds.has(d.id) ? 3 : 2).attr("stroke-dasharray", d => d.id === connectingSourceId ? "4,2" : "none");
+    node.select(".node-img").attr("href", d => (d as any).imageId ? blobUrls[(d as any).imageId] : "").style("display", d => (d as any).imageId && blobUrls[(d as any).imageId] ? "block" : "none");
+    node.select(".node-icon").text(d => (d as any).isClue ? '📦' : d.name.slice(0, 1)).style("display", d => (d as any).imageId && blobUrls[(d as any).imageId] ? "none" : "block");
     node.select(".node-label").text(d => d.name);
 
-    // Node Drag Logic (Enhanced for Multi-Move)
-    const dragHandler = d3.drag<SVGGElement, any>()
-        .on("start", (e, d) => {
-             // If dragging an unselected node in select mode, select it first if Ctrl is not held
-             // Use Ref for latest selection state
-             if (mode === 'select' && !selectedNodeIdsRef.current.has(d.id) && !e.sourceEvent.ctrlKey && !e.sourceEvent.metaKey) {
-                 setSelectedNodeIds(new Set([d.id]));
-             }
-        })
+    const dragHandler = d3.drag<SVGGElement, any>().on("start", (e, d) => { if (mode === 'select' && !selectedNodeIdsRef.current.has(d.id) && !e.sourceEvent.ctrlKey && !e.sourceEvent.metaKey) setSelectedNodeIds(new Set([d.id])); })
         .on("drag", (e, d) => {
             if (mode !== 'move' && mode !== 'select') return;
-            
-            const dx = e.dx;
-            const dy = e.dy;
-            
-            // Determine affected nodes using Ref for latest state
+            const dx = e.dx; const dy = e.dy;
             const currentSelected = selectedNodeIdsRef.current;
-            const movingIds = currentSelected.has(d.id) && mode === 'select' 
-                ? Array.from(currentSelected) 
-                : [d.id];
-            
-            // Temporary update for visual smoothness
-            movingIds.forEach(id => {
-               const nodeData = displayNodes.find(n => n.id === id);
-               if (nodeData) {
-                   nodeData.x += dx;
-                   nodeData.y += dy;
-               }
-            });
-            
-            // Move SVG elements
-            svg.selectAll<SVGGElement, any>(".node-item")
-               .filter(n => movingIds.includes(n.id))
-               .attr("transform", n => `translate(${n.x},${n.y})`);
-               
-            // Move connected links (Update path d attribute)
+            const movingIds = currentSelected.has(d.id) && mode === 'select' ? Array.from(currentSelected) : [d.id];
+            movingIds.forEach(id => { const nodeData = displayNodes.find(n => n.id === id); if (nodeData) { nodeData.x += dx; nodeData.y += dy; } });
+            svg.selectAll<SVGGElement, any>(".node-item").filter(n => movingIds.includes(n.id)).attr("transform", n => `translate(${n.x},${n.y})`);
             const activeMovingIds = new Set(movingIds);
-            g.selectAll<SVGPathElement, Relationship>(".link-path")
-             .filter(l => activeMovingIds.has(l.source) || activeMovingIds.has(l.target))
-             .attr("d", l => {
-                const s = getNode(l.source);
-                const t = getNode(l.target);
-                if (!s || !t) return "";
-                const r = 32;
-                const dist = Math.sqrt(Math.pow(t.x-s.x, 2) + Math.pow(t.y-s.y, 2));
-                if (dist === 0) return "";
-                const tx = t.x - ((t.x-s.x)/dist) * r;
-                const ty = t.y - ((t.y-s.y)/dist) * r;
-                const sx = s.x + ((t.x-s.x)/dist) * r;
-                const sy = s.y + ((t.y-s.y)/dist) * r;
-                return `M ${sx},${sy} L ${tx},${ty}`;
+            g.selectAll<SVGPathElement, Relationship>(".link-path").filter(l => activeMovingIds.has(l.source) || activeMovingIds.has(l.target)).attr("d", l => {
+                const s = getNode(l.source); const t = getNode(l.target); if (!s || !t) return ""; const r = 32; const dist = Math.sqrt(Math.pow(t.x-s.x, 2) + Math.pow(t.y-s.y, 2)); if (dist === 0) return "";
+                const tx = t.x - ((t.x-s.x)/dist) * r; const ty = t.y - ((t.y-s.y)/dist) * r; const sx = s.x + ((t.x-s.x)/dist) * r; const sy = s.y + ((t.y-s.y)/dist) * r; return `M ${sx},${sy} L ${tx},${ty}`;
              });
-             
-             // Move link labels
-            g.selectAll<SVGGElement, Relationship>(".link-label-group")
-             .filter(l => activeMovingIds.has(l.source) || activeMovingIds.has(l.target))
-             .attr("transform", l => {
-                 const s = getNode(l.source);
-                 const t = getNode(l.target);
-                 if (!s || !t) return "";
-                 return `translate(${(s.x+t.x)/2},${(s.y+t.y)/2})`;
-             });
-
-            // Update Group Hulls
-            g.selectAll<SVGPathElement, any>(".group-hull")
-             .attr("d", gd => {
-                 // Re-calculate hull based on updated node positions
-                 // Since gd.nodes refs are same objects as in displayNodes (which we updated above), 
-                 // we can just re-run the hull generator
-                 return getGroupPath(gd.nodes);
-             });
-
+            g.selectAll<SVGGElement, Relationship>(".link-label-group").filter(l => activeMovingIds.has(l.source) || activeMovingIds.has(l.target)).attr("transform", l => { const s = getNode(l.source); const t = getNode(l.target); if (!s || !t) return ""; return `translate(${(s.x+t.x)/2},${(s.y+t.y)/2})`; });
+            g.selectAll<SVGPathElement, any>(".group-hull").attr("d", gd => getGroupPath(gd.nodes));
         })
         .on("end", (e, d) => {
              if (mode !== 'move' && mode !== 'select') return;
-             
              const currentSelected = selectedNodeIdsRef.current;
-             const movingIds = currentSelected.has(d.id) && mode === 'select'
-                 ? Array.from(currentSelected) 
-                 : [d.id];
-                 
+             const movingIds = currentSelected.has(d.id) && mode === 'select' ? Array.from(currentSelected) : [d.id];
              const newLayoutChanges: Record<string, {x:number, y:number}> = {};
-             movingIds.forEach(id => {
-                 const n = displayNodes.find(dn => dn.id === id);
-                 if (n) newLayoutChanges[id] = { x: n.x, y: n.y };
-             });
+             movingIds.forEach(id => { const n = displayNodes.find(dn => dn.id === id); if (n) newLayoutChanges[id] = { x: n.x, y: n.y }; });
              onUpdateLayout(newLayoutChanges);
         });
-
     node.call(dragHandler);
-
-  }, [characters, clues, relationships, relationshipDefs, viewMode, layout, isExpanded, mode, characterGroups, blobUrls, connectingSourceId]); 
-  // removed selectedNodeIds from dependency to avoid re-render loop on D3 logic
+  }, [characters, clues, relationships, relationshipDefs, viewMode, layout, isExpanded, mode, characterGroups, blobUrls, connectingSourceId]);
 
   return (
     <div className={`flex gap-4 flex-col lg:flex-row transition-all duration-300 ${isExpanded ? 'fixed inset-0 z-[400] bg-slate-950 p-6' : 'h-full min-h-[600px] relative'}`}>
+        
+        {/* Expanded Sidebar for Drag & Drop */}
+        {isExpanded && (
+            <div className="w-72 border-r border-slate-800 bg-slate-900 flex flex-col shrink-0 animate-in slide-in-from-left duration-300 rounded-l-2xl overflow-hidden shadow-2xl">
+                <div className="flex border-b border-slate-800">
+                    <button 
+                        onClick={() => setSidebarTab('characters')}
+                        className={`flex-1 py-4 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'characters' ? 'text-blue-400 bg-slate-800/80 border-b-2 border-blue-500 shadow-[inset_0_-2px_10px_rgba(59,130,246,0.1)]' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'}`}
+                    >
+                        登场人物
+                    </button>
+                    <button 
+                        onClick={() => setSidebarTab('clues')}
+                        className={`flex-1 py-4 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800/80 border-b-2 border-amber-500 shadow-[inset_0_-2px_10px_rgba(245,158,11,0.1)]' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/30'}`}
+                    >
+                        证物清单
+                    </button>
+                </div>
+                
+                <div className="p-3 border-b border-slate-800 bg-slate-950/30">
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                        <input 
+                            className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white outline-none focus:ring-1 focus:ring-blue-500 transition-all placeholder:text-slate-600"
+                            placeholder={sidebarTab === 'characters' ? "搜索人物拖入..." : "搜索证物拖入..."}
+                            value={sidebarSearch}
+                            onChange={e => setSidebarSearch(e.target.value)}
+                        />
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2 bg-slate-900/50">
+                    {sidebarTab === 'characters' ? (
+                        allCharacters
+                            .filter(c => !c.isVirtual && (sidebarSearch === "" || c.name.toLowerCase().includes(sidebarSearch.toLowerCase())))
+                            .map(char => {
+                                const isActive = characters.some(c => c.id === char.id);
+                                const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
+                                return (
+                                    <div 
+                                        key={char.id}
+                                        draggable={!isActive}
+                                        onDragStart={(e) => {
+                                            if (isActive) return;
+                                            e.dataTransfer.setData("application/react-dnd-char-id", char.id);
+                                        }}
+                                        className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all ${isActive ? 'bg-slate-900/50 border-slate-800 opacity-50 grayscale cursor-default' : 'bg-slate-800 border-slate-700 hover:border-blue-500 hover:bg-slate-750 cursor-grab active:cursor-grabbing hover:shadow-lg'}`}
+                                    >
+                                        <div className="w-9 h-9 rounded-full bg-slate-900 border border-slate-600 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                                            {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover" /> : <User size={16} className="text-slate-500" />}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-xs font-bold text-slate-200 truncate">{char.name}</span>
+                                            <span className="text-[10px] text-slate-500 truncate">{char.raw_info || char.note || "无描述"}</span>
+                                        </div>
+                                        {isActive && <div className="ml-auto"><CheckCircle2 size={14} className="text-blue-500/50" /></div>}
+                                    </div>
+                                );
+                            })
+                    ) : (
+                        allClues
+                            .filter(c => (sidebarSearch === "" || c.name.toLowerCase().includes(sidebarSearch.toLowerCase())))
+                            .map(clue => {
+                                const isActive = clues.some(c => c.id === clue.id);
+                                const imageUrl = clue.imageId ? blobUrls[clue.imageId] : null;
+                                return (
+                                    <div 
+                                        key={clue.id}
+                                        draggable={!isActive}
+                                        onDragStart={(e) => {
+                                            if (isActive) return;
+                                            e.dataTransfer.setData("application/react-dnd-clue-id", clue.id);
+                                        }}
+                                        className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all ${isActive ? 'bg-slate-900/50 border-slate-800 opacity-50 grayscale cursor-default' : 'bg-slate-800 border-slate-700 hover:border-amber-500 hover:bg-slate-750 cursor-grab active:cursor-grabbing hover:shadow-lg'}`}
+                                    >
+                                        <div className="w-9 h-9 rounded-lg bg-slate-900 border border-slate-600 flex items-center justify-center overflow-hidden shrink-0 shadow-sm">
+                                            {imageUrl ? <img src={imageUrl} className="w-full h-full object-cover" /> : <Package size={16} className="text-slate-500" />}
+                                        </div>
+                                        <div className="flex flex-col min-w-0">
+                                            <span className="text-xs font-bold text-slate-200 truncate">{clue.name}</span>
+                                            <span className="text-[10px] text-slate-500 truncate">{clue.found_location}</span>
+                                        </div>
+                                        {isActive && <div className="ml-auto"><CheckCircle2 size={14} className="text-amber-500/50" /></div>}
+                                    </div>
+                                );
+                            })
+                    )}
+                </div>
+            </div>
+        )}
+
       <div 
         ref={containerRef} 
         onDragOver={handleDragOver} 
@@ -766,7 +566,9 @@ const RelationshipGraph: React.FC<Props> = ({
              </div>
           )}
         </div>
-        <button onClick={() => setIsExpanded(!isExpanded)} className="absolute top-6 right-6 p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl border border-slate-700 shadow-lg"><Maximize size={20} /></button>
+        <button onClick={() => setIsExpanded(!isExpanded)} className={`absolute top-6 right-6 p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl border border-slate-700 shadow-lg transition-all ${isExpanded ? 'bg-slate-700 text-white ring-2 ring-slate-600' : ''}`}>
+            {isExpanded ? <Minimize size={20} /> : <Maximize size={20} />}
+        </button>
         
         {/* Link Creation Modal */}
         {linkModalData && (

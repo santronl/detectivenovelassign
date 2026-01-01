@@ -993,6 +993,8 @@ const App: React.FC = () => {
                   viewMode={state.graphSubTab === 'items' ? 'items' : 'people'}
                   characters={(state.characters || []).filter(c => state.graphSubTab === 'people' ? (state.graphActiveCharacterIds || []).includes(c.id) : (state.itemGraphActiveIds || []).includes(c.id))} 
                   clues={state.graphSubTab === 'items' ? (state.clues || []).filter(c => (state.itemGraphActiveIds || []).includes(c.id)) : []}
+                  allCharacters={state.characters || []}
+                  allClues={state.clues || []}
                   relationships={state.graphSubTab === 'people' ? (state.graphPeopleRelationships || []) : (state.graphItemRelationships || [])} 
                   relationshipDefs={state.relationshipDefs} 
                   characterGroups={state.characterGroups} 
