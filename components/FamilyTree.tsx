@@ -453,7 +453,7 @@ const FamilyTree: React.FC<Props> = ({
                             <section className="space-y-4">
                                 <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2"><MousePointer size={14}/> 1. 添加人物到视图</h4>
                                 <p className="text-sm text-slate-300 leading-relaxed">从左侧侧边栏中勾选人物，或直接按住侧边栏的人物卡片<strong>拖拽</strong>到谱系图空白处。已在图中的人物会变灰无法重复添加。</p>
-                             section>
+                             </section>
 
                             <section className="space-y-4">
                                 <h4 className="text-xs font-black text-indigo-400 uppercase tracking-widest flex items-center gap-2"><GitBranch size={14}/> 2. 建立血缘/社会关系</h4>
