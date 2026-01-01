@@ -736,6 +736,7 @@ const App: React.FC = () => {
                   relationshipDefs={state.relationshipDefs} 
                   characterGroups={state.characterGroups} 
                   layout={state.graphSubTab === 'people' ? state.graphLayout : state.itemGraphLayout} 
+                  blobUrls={blobUrls}
                   onAddRelationship={(s, t, r) => setState(prev => { 
                     const isItem = prev.graphSubTab === 'items';
                     const targetField = isItem ? 'graphItemRelationships' : 'graphPeopleRelationships';
