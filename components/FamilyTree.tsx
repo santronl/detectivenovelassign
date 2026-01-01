@@ -671,7 +671,7 @@ const FamilyTree: React.FC<Props> = ({
                                     </div>
                                     <div className="ml-3 flex flex-col truncate min-w-0">
                                         <span className={`text-[11px] font-black truncate ${char.isVirtual ? 'text-slate-500 italic' : 'text-white'}`}>{char.name}</span>
-                                        <span className="text-[9px] text-slate-500 mt-0.5 truncate font-bold uppercase tracking-widest leading-none">{char.isVirtual ? '虚拟占位符' : (char.note || char.raw_info || '登场人物')}</span>
+                                        <span className="text-[9px] text-slate-500 mt-0.5 truncate font-bold uppercase tracking-widest leading-none">{char.isVirtual ? '虚拟占位符' : (char.raw_info || char.note || '登场人物')}</span>
                                     </div>
                                     
                                     <div className="absolute top-2 right-2 opacity-0 group-hover/card:opacity-100 transition-all flex gap-1 bg-slate-900/80 backdrop-blur-sm p-1 rounded-lg border border-slate-700 shadow-xl">

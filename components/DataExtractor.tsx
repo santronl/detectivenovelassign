@@ -35,7 +35,7 @@ interface Props {
   onComplete: (characters: Character[]) => void;
 }
 
-type TokenRole = 'ignore' | 'name' | 'note';
+type TokenRole = 'ignore' | 'name' | 'note' | 'raw_info';
 type ExtractionMode = 'normal' | 'genealogy';
 
 interface BlockMapping {
@@ -108,7 +108,7 @@ const DataExtractor: React.FC<Props> = ({ isOpen, onClose, onComplete }) => {
     if (templateBlocks.length > 0) {
         setMappings(templateBlocks.map((_, i) => ({
             index: i,
-            role: i === 0 ? 'name' : (i === 1 ? 'name' : (i === 2 ? 'note' : 'ignore'))
+            role: i === 0 ? 'name' : (i === 1 ? 'raw_info' : (i === 2 ? 'note' : 'ignore'))
         })));
     }
   }, [templateBlocks]);
@@ -116,7 +116,7 @@ const DataExtractor: React.FC<Props> = ({ isOpen, onClose, onComplete }) => {
   const cycleRole = (index: number) => {
     setMappings(prev => prev.map(m => {
         if (m.index !== index) return m;
-        const roles: TokenRole[] = ['ignore', 'name', 'note'];
+        const roles: TokenRole[] = ['ignore', 'name', 'raw_info', 'note'];
         const nextRole = roles[(roles.indexOf(m.role) + 1) % roles.length];
         return { ...m, role: nextRole };
     }));
@@ -135,14 +135,16 @@ const DataExtractor: React.FC<Props> = ({ isOpen, onClose, onComplete }) => {
         
         let nameParts: string[] = [];
         let noteParts: string[] = [];
+        let rawInfoParts: string[] = [];
 
         mappings.forEach(m => {
             const val = blocks[m.index] || "";
             if (m.role === 'name' && val) nameParts.push(val);
             if (m.role === 'note' && val) noteParts.push(val);
+            if (m.role === 'raw_info' && val) rawInfoParts.push(val);
         });
 
-        if (nameParts.length > 0 || noteParts.length > 0) {
+        if (nameParts.length > 0 || noteParts.length > 0 || rawInfoParts.length > 0) {
             let fullName = nameParts.join("");
             if (mode === 'genealogy') {
                 if (!isIndented) {
@@ -156,6 +158,7 @@ const DataExtractor: React.FC<Props> = ({ isOpen, onClose, onComplete }) => {
                 results.push({ 
                     id: crypto.randomUUID(), 
                     name: fullName, 
+                    raw_info: rawInfoParts.join(" ") || undefined,
                     note: noteParts.join(" ") || undefined,
                     _sourceLineText: line 
                 });
@@ -368,12 +371,17 @@ const DataExtractor: React.FC<Props> = ({ isOpen, onClose, onComplete }) => {
                                             <button 
                                                 key={idx} 
                                                 onClick={() => cycleRole(idx)} 
-                                                className={`px-5 py-3 rounded-2xl border transition-all flex flex-col items-center gap-2 group/col ${role === 'name' ? 'bg-indigo-600/20 border-indigo-500 text-indigo-100' : role === 'note' ? 'bg-amber-600/20 border-amber-500 text-amber-100' : 'bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-600'}`}
+                                                className={`px-5 py-3 rounded-2xl border transition-all flex flex-col items-center gap-2 group/col ${role === 'name' ? 'bg-indigo-600/20 border-indigo-500 text-indigo-100' : role === 'raw_info' ? 'bg-emerald-600/20 border-emerald-500 text-emerald-100' : role === 'note' ? 'bg-amber-600/20 border-amber-500 text-amber-100' : 'bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-600'}`}
                                             >
                                                 <div className="text-[9px] uppercase font-black opacity-50 tracking-tighter">列 {idx + 1}</div>
                                                 <span className="font-mono text-xs font-black truncate max-w-[100px]">{block || '(空)'}</span>
-                                                <div className={`text-[10px] font-black px-2 py-0.5 rounded shadow-sm transition-all ${role === 'name' ? 'bg-indigo-500 text-white' : role === 'note' ? 'bg-amber-500 text-black' : 'bg-slate-700 text-slate-400 group-hover/col:text-slate-200'}`}>
-                                                    {role === 'name' ? '识别人名' : role === 'note' ? '识别简介' : '跳过此列'}
+                                                <div className={`text-[10px] font-black px-2 py-0.5 rounded shadow-sm transition-all ${
+                                                    role === 'name' ? 'bg-indigo-500 text-white' : 
+                                                    role === 'raw_info' ? 'bg-emerald-500 text-white' :
+                                                    role === 'note' ? 'bg-amber-500 text-black' : 
+                                                    'bg-slate-700 text-slate-400 group-hover/col:text-slate-200'
+                                                }`}>
+                                                    {role === 'name' ? '识别人名' : role === 'raw_info' ? '识别身份' : role === 'note' ? '识别简介' : '跳过此列'}
                                                 </div>
                                             </button>
                                         );
@@ -390,11 +398,16 @@ const DataExtractor: React.FC<Props> = ({ isOpen, onClose, onComplete }) => {
                                     ) : (
                                         currentBatchResults.map((char, i) => (
                                             <div key={i} className="px-5 py-3 flex items-center justify-between text-xs animate-in fade-in slide-in-from-left-1" style={{ animationDelay: `${i * 20}ms` }}>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                                                    <span className="font-black text-indigo-100">{char.name}</span>
+                                                <div className="flex items-center gap-3 min-w-0">
+                                                    <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />
+                                                    <span className="font-black text-indigo-100 truncate">{char.name}</span>
+                                                    {char.raw_info && (
+                                                        <span className="px-1.5 py-0.5 rounded bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 text-[10px] truncate max-w-[100px]">
+                                                            {char.raw_info}
+                                                        </span>
+                                                    )}
                                                 </div>
-                                                <span className="text-slate-500 italic truncate max-w-[250px] font-medium">{char.note || '-'}</span>
+                                                <span className="text-slate-500 italic truncate max-w-[200px] font-medium ml-4">{char.note || '-'}</span>
                                             </div>
                                         ))
                                     )}
@@ -439,7 +452,10 @@ const DataExtractor: React.FC<Props> = ({ isOpen, onClose, onComplete }) => {
                     ) : (
                         stagedCharacters.map((char, i) => (
                             <div key={i} className="p-4 bg-slate-800/60 rounded-2xl border border-slate-700 relative group shadow-sm hover:border-emerald-500/30 transition-all animate-in zoom-in-95">
-                                <div className="text-[11px] font-black text-white">{char.name}</div>
+                                <div className="flex justify-between items-start gap-2">
+                                    <div className="text-[11px] font-black text-white">{char.name}</div>
+                                    {char.raw_info && <div className="text-[9px] font-bold text-emerald-400 bg-emerald-900/20 px-1.5 rounded border border-emerald-500/20 whitespace-nowrap">{char.raw_info}</div>}
+                                </div>
                                 {char.note && <div className="text-[10px] text-slate-500 truncate mt-1 leading-tight">{char.note}</div>}
                                 <button 
                                     onClick={() => handleRemoveStaged(i)}

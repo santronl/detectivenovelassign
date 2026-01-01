@@ -54,7 +54,10 @@ import {
   CheckSquare,
   Square,
   Check,
-  UserRoundPlus
+  UserRoundPlus,
+  Palette,
+  Type,
+  Ungroup
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -86,6 +89,16 @@ const App: React.FC = () => {
   const [tempGroupName, setTempGroupName] = useState("");
   const [showGroupPickerForCharId, setShowGroupPickerForCharId] = useState<string | null>(null);
   const [isBatchGroupModalOpen, setIsBatchGroupModalOpen] = useState(false);
+
+  // Group Creation State
+  const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupColor, setNewGroupColor] = useState("#3b82f6");
+  const [pendingGroupMemberIds, setPendingGroupMemberIds] = useState<string[]>([]);
+
+  // Sorting State
+  const [draggedSidebarItem, setDraggedSidebarItem] = useState<{ id: string, type: 'char' | 'group', groupId?: string } | null>(null);
+  const [dropTargetItem, setDropTargetItem] = useState<{ id: string, position: 'top' | 'bottom' } | null>(null);
 
   useEffect(() => {
     return () => { Object.keys(blobUrls).forEach(k => URL.revokeObjectURL(blobUrls[k])); };
@@ -354,10 +367,10 @@ const App: React.FC = () => {
             return { ...prev, familyActiveCharIds: newActive };
         } else {
             const subTab = prev.graphSubTab;
-            const activeField = subTab === 'people' ? 'graphActiveCharacterIds' : 'itemGraphActiveIds';
-            const currentActive = (prev[activeField] || []) as string[];
+            const targetField = subTab === 'people' ? 'graphActiveCharacterIds' : 'itemGraphActiveIds';
+            const currentActive = (prev[targetField] || []) as string[];
             const newActive = [...new Set([...currentActive, ...ids])];
-            return { ...prev, [activeField]: newActive };
+            return { ...prev, [targetField]: newActive };
         }
     });
     setSelectedSidebarCharIds(new Set());
@@ -378,6 +391,177 @@ const App: React.FC = () => {
     setIsBatchGroupModalOpen(false);
     setSelectedSidebarCharIds(new Set());
     setStatusMessage(`成功将 ${ids.length} 位角色归入分组`);
+  };
+
+  const handleBatchUngroup = () => {
+    if (selectedSidebarCharIds.size === 0) return;
+    const idsToCheck = selectedSidebarCharIds;
+    let updated = false;
+    
+    const newGroups = (state.characterGroups || []).map(g => {
+      const newIds = g.characterIds.filter(id => !idsToCheck.has(id));
+      if (newIds.length !== g.characterIds.length) updated = true;
+      return { ...g, characterIds: newIds };
+    });
+
+    if (updated) {
+        setState(prev => ({ ...prev, characterGroups: newGroups }));
+        setStatusMessage(`已将选中的 ${selectedSidebarCharIds.size} 位对象移出所在分组`);
+        setSelectedSidebarCharIds(new Set());
+    } else {
+        setStatusMessage("选中的对象未加入任何分组");
+    }
+  };
+
+  // --- Group Creation Modal Logic ---
+  const handleOpenCreateGroupModal = (ids: string[]) => {
+      setPendingGroupMemberIds(ids);
+      setNewGroupName("新建分组");
+      setNewGroupColor('#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
+      setIsCreateGroupModalOpen(true);
+      setIsBatchGroupModalOpen(false); 
+      setShowGroupPickerForCharId(null);
+  };
+
+  const handleConfirmCreateGroup = () => {
+      if (!newGroupName.trim()) return;
+      const newGroupId = crypto.randomUUID();
+      const newGroup = { 
+          id: newGroupId, 
+          label: newGroupName.trim(), 
+          characterIds: pendingGroupMemberIds, 
+          color: newGroupColor 
+      };
+      
+      setState(prev => ({
+          ...prev,
+          characterGroups: [...(prev.characterGroups || []), newGroup]
+      }));
+      
+      setIsCreateGroupModalOpen(false);
+      setSelectedSidebarCharIds(new Set()); 
+      setStatusMessage(`成功创建分组 "${newGroupName}" 并添加成员`);
+  };
+
+  const handleAddManualCharacter = () => {
+      const newChar: Character = {
+          id: crypto.randomUUID(),
+          name: '新角色',
+          raw_info: '待补充'
+      };
+      setState(prev => ({
+          ...prev,
+          characters: [newChar, ...(prev.characters || [])]
+      }));
+      setEditingCharacter(newChar);
+  };
+
+  // --- Character Reordering Logic ---
+  const handleSortDragStart = (e: React.DragEvent, id: string, type: 'char' | 'group', groupId?: string) => {
+      e.stopPropagation();
+      // Set drag data
+      setDraggedSidebarItem({ id, type, groupId });
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("application/mysterymind-sort", "true");
+      // Prevent default text selection
+  };
+
+  const handleSortDrop = (e: React.DragEvent, targetId: string, targetType: 'char' | 'group', targetGroupId?: string) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setDropTargetItem(null);
+
+      if (!draggedSidebarItem || draggedSidebarItem.type !== 'char' || targetType !== 'char') return;
+      if (draggedSidebarItem.id === targetId) return;
+
+      const sourceId = draggedSidebarItem.id;
+      const sourceGroupId = draggedSidebarItem.groupId; // undefined means Ungrouped list
+
+      // Logic for moving characters
+      setState(prev => {
+          let nextGroups = [...(prev.characterGroups || [])];
+          let nextCharacters = [...(prev.characters || [])];
+
+          // 1. Remove from Source
+          if (sourceGroupId) {
+              // Remove from source group
+              nextGroups = nextGroups.map(g => {
+                  if (g.id === sourceGroupId) {
+                      return { ...g, characterIds: g.characterIds.filter(id => id !== sourceId) };
+                  }
+                  return g;
+              });
+          } else {
+              // Coming from Ungrouped list (which is essentially the main characters array order filtered)
+              // We don't remove from 'characters' array because that holds everything.
+              // But we might need to reorder 'characters' array if we are moving within ungrouped.
+          }
+
+          // 2. Insert into Target
+          if (targetGroupId) {
+              // Moving into a group
+              nextGroups = nextGroups.map(g => {
+                  if (g.id === targetGroupId) {
+                      const newIds = [...g.characterIds];
+                      const targetIndex = newIds.indexOf(targetId);
+                      // If drag source was already in this group, we filtered it out in step 1, so index might shift.
+                      // If sourceGroupId === targetGroupId, we just did a reorder.
+                      // Let's simplify: Just reconstruct the specific group's ID list.
+                      
+                      // Case A: Reorder within same group
+                      if (sourceGroupId === targetGroupId) {
+                          // We filtered it out in step 1.
+                          // Insert at target index.
+                          if (targetIndex !== -1) {
+                              newIds.splice(targetIndex, 0, sourceId);
+                          } else {
+                              newIds.push(sourceId); // Fallback
+                          }
+                          return { ...g, characterIds: newIds };
+                      } else {
+                          // Case B: Move from Ungrouped (or other group) to this group
+                          if (targetIndex !== -1) {
+                              newIds.splice(targetIndex, 0, sourceId);
+                          } else {
+                              newIds.push(sourceId);
+                          }
+                          return { ...g, characterIds: newIds };
+                      }
+                  }
+                  return g;
+              });
+          } else {
+              // Moving to Ungrouped list (targetGroupId is undefined)
+              // This implies reordering the main `characters` array so that sourceId appears next to targetId.
+              // Note: Ungrouped list is derived from `characters` filtered by !inGroup.
+              // So to reorder ungrouped items visually, we must reorder `characters`.
+              
+              const currentChars = [...prev.characters];
+              const sourceIndex = currentChars.findIndex(c => c.id === sourceId);
+              const targetIndex = currentChars.findIndex(c => c.id === targetId);
+              
+              if (sourceIndex > -1 && targetIndex > -1) {
+                  const [removed] = currentChars.splice(sourceIndex, 1);
+                  // Recalculate target index because splice might have shifted it
+                  const newTargetIndex = currentChars.findIndex(c => c.id === targetId);
+                  currentChars.splice(newTargetIndex, 0, removed);
+                  nextCharacters = currentChars;
+              }
+
+              // Also ensure we remove it from any previous group if it came from one
+              if (sourceGroupId) {
+                  // We already did this in Step 1 (nextGroups is updated).
+              }
+          }
+
+          return {
+              ...prev,
+              characterGroups: nextGroups,
+              characters: nextCharacters
+          };
+      });
+      
+      setDraggedSidebarItem(null);
   };
 
   const renderGroupHeader = (group: CharacterGroup) => (
@@ -404,7 +588,7 @@ const App: React.FC = () => {
       ) : (
         <span 
           onDoubleClick={() => { setEditingGroupId(group.id); setTempGroupName(group.label); }}
-          className="text-[9px] font-black uppercase tracking-widest text-slate-400 truncate cursor-text"
+          className="text-[9px] font-black uppercase tracking-widest text-slate-400 truncate cursor-text select-none"
         >
           {group.label}
         </span>
@@ -429,7 +613,7 @@ const App: React.FC = () => {
     </div>
   );
 
-  const renderCharacterCard = (char: Character) => {
+  const renderCharacterCard = (char: Character, groupId?: string) => {
     const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
     const charGroups = (state.characterGroups || []).filter(g => (g.characterIds || []).includes(char.id));
     const primaryGroup = charGroups[0];
@@ -457,35 +641,61 @@ const App: React.FC = () => {
                 e.dataTransfer.setData("application/react-dnd-char-id", char.id);
             }
         }} 
+        onDragOver={(e) => {
+            if (draggedSidebarItem?.type === 'char' && draggedSidebarItem.id !== char.id) {
+               e.preventDefault(); // Allow drop
+            }
+        }}
+        onDrop={(e) => {
+            if (draggedSidebarItem?.type === 'char') {
+               handleSortDrop(e, char.id, 'char', groupId);
+            }
+        }}
         style={{ borderLeft: primaryGroup ? `4px solid ${primaryGroup.color}` : '4px solid transparent', backgroundColor: isSelected ? 'rgba(59, 130, 246, 0.15)' : (primaryGroup ? `${primaryGroup.color}10` : 'rgb(51 65 85 / 0.5)') }} 
-        className={`flex items-start justify-between p-2.5 rounded-r-xl border transition-all shadow-sm ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-700 hover:border-slate-500'} ${isCurrentlyActive ? 'opacity-40 border-dashed cursor-default grayscale-[0.8]' : 'cursor-grab active:cursor-grabbing'}`}
+        className={`flex items-start justify-between p-2.5 rounded-r-xl border transition-all shadow-sm group ${isSelected ? 'border-blue-500 ring-2 ring-blue-500/20' : 'border-slate-700 hover:border-slate-500'} ${isCurrentlyActive ? 'border-dashed bg-slate-900/30' : 'cursor-grab active:cursor-grabbing'}`}
       >
         <div className="flex items-start gap-2.5 truncate flex-1">
-          <div onClick={(e) => { e.stopPropagation(); if(!isCurrentlyActive) toggleSidebarSelection(char.id); }} className={`mt-1 shrink-0 ${isCurrentlyActive ? 'cursor-not-allowed opacity-20' : 'cursor-pointer'}`}>
-            {isSelected ? <CheckSquare size={14} className="text-blue-500" /> : <Square size={14} className="text-slate-600 group-hover:text-slate-400" />}
+          <div className="flex flex-col gap-1 items-center mt-1">
+             <div 
+                draggable 
+                onDragStart={(e) => handleSortDragStart(e, char.id, 'char', groupId)}
+                className="text-slate-600 cursor-grab active:cursor-grabbing hover:text-slate-400"
+                title="拖动排序"
+             >
+                <GripVertical size={12} />
+             </div>
+             <div onClick={(e) => { e.stopPropagation(); toggleSidebarSelection(char.id); }} className="cursor-pointer">
+                {isSelected ? <CheckSquare size={14} className="text-blue-500" /> : <Square size={14} className="text-slate-600 group-hover:text-slate-400" />}
+             </div>
           </div>
           {portraitUrl ? (
-            <div className="w-8 h-8 rounded-full overflow-hidden border-2 border-slate-600 bg-slate-900 shrink-0 shadow-md"><img src={portraitUrl} className="w-full h-full object-cover" /></div>
+            <div className={`w-8 h-8 rounded-full overflow-hidden border-2 border-slate-600 bg-slate-900 shrink-0 shadow-md ${isCurrentlyActive ? 'opacity-70 grayscale' : ''}`}><img src={portraitUrl} className="w-full h-full object-cover" /></div>
           ) : (
-            <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border-2 border-slate-700 shadow-md"><User size={14} /></div>
+            <div className={`w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-500 shrink-0 border-2 border-slate-700 shadow-md ${isCurrentlyActive ? 'opacity-70' : ''}`}><User size={14} /></div>
           )}
           <div className="flex flex-col truncate min-w-0 pt-0.5">
-            <span className="text-xs font-black text-blue-100 truncate tracking-tight">{char.name}</span>
-            {isCurrentlyActive ? (
-                <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">已在画布中</span>
-            ) : (char.note || char.raw_info) && (
-              <span className="text-[9px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{char.note || char.raw_info}</span>
+            <span className={`text-xs font-black truncate tracking-tight ${isCurrentlyActive ? 'text-slate-400' : 'text-blue-100'}`}>{char.name}</span>
+            {(char.raw_info || char.note) && (
+              <span className="text-[9px] text-slate-400 truncate mt-0.5 leading-tight font-normal italic">{char.raw_info || char.note}</span>
             )}
-            {!isCurrentlyActive && (
+            
+            {isCurrentlyActive && (
+                 <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest mt-0.5 flex items-center gap-1">
+                    <Check size={8} /> 已在画布
+                 </span>
+            )}
+            
               <div className="flex flex-wrap gap-1 mt-1.5">
                 {charGroups.map(group => (
                   <button 
                     key={group.id} 
                     onClick={() => toggleCharacterInGroup(group.id, char.id)}
                     style={{ backgroundColor: `${group.color}20`, borderColor: `${group.color}40`, color: group.color }} 
-                    className="px-1 py-0.5 rounded-md text-[7px] font-black border flex items-center gap-0.5 shadow-sm hover:brightness-125"
+                    className="px-1 py-0.5 rounded-md text-[7px] font-black border flex items-center gap-0.5 shadow-sm hover:brightness-125 transition-all group/tag"
+                    title="点击移除分组"
                   >
                     <Layers size={7} /> {group.label}
+                    <X size={7} className="opacity-0 group-hover/tag:opacity-100 transition-opacity ml-0.5" />
                   </button>
                 ))}
                 <button 
@@ -495,12 +705,11 @@ const App: React.FC = () => {
                   <Plus size={7} /> 分组
                 </button>
               </div>
-            )}
           </div>
         </div>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={() => setEditingCharacter(char)} className="p-1.5 text-slate-500 hover:text-blue-400 rounded-lg transition-colors"><Info size={12}/></button>
-          <button onClick={() => setCharacterToDelete(char)} className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg transition-colors"><Trash2 size={12}/></button>
+        <div className="flex flex-col gap-1 items-end opacity-0 group-hover:opacity-100 transition-opacity">
+          <button onClick={() => setEditingCharacter(char)} className="p-1 text-slate-500 hover:text-blue-400 rounded transition-colors" title="编辑详情"><Info size={12}/></button>
+          <button onClick={() => setCharacterToDelete(char)} className="p-1 text-slate-500 hover:text-red-400 rounded transition-colors" title="删除角色"><Trash2 size={12}/></button>
         </div>
 
         {showGroupPickerForCharId === char.id && (
@@ -519,18 +728,29 @@ const App: React.FC = () => {
                   </button>
                 ))}
                 <button 
-                  onClick={() => {
-                    const id = crypto.randomUUID();
-                    const newGroup = { id, label: "新分组", characterIds: [char.id], color: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0') };
-                    setState(p => ({ ...p, characterGroups: [...(p.characterGroups || []), newGroup] }));
-                    setEditingGroupId(id);
-                    setTempGroupName("新分组");
-                    setShowGroupPickerForCharId(null);
-                  }}
+                  onClick={() => handleOpenCreateGroupModal([char.id])}
                   className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border border-dashed border-slate-700 text-slate-500 hover:border-slate-500 flex items-center gap-2"
                 >
                   <Plus size={12} /> 创建新分组
                 </button>
+                {(state.characterGroups || []).some(g => g.characterIds.includes(char.id)) && (
+                    <button 
+                      onClick={() => {
+                          setState(prev => ({
+                              ...prev,
+                              characterGroups: prev.characterGroups.map(g => ({
+                                  ...g,
+                                  characterIds: g.characterIds.filter(id => id !== char.id)
+                              }))
+                          }));
+                          setShowGroupPickerForCharId(null);
+                          setStatusMessage(`已将 ${char.name} 移出所有分组`);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border border-transparent text-red-400 hover:bg-red-900/20 flex items-center gap-2"
+                    >
+                      <Ungroup size={12} /> 移出所有分组
+                    </button>
+                )}
               </div>
             </div>
           </div>
@@ -597,6 +817,30 @@ const App: React.FC = () => {
                     {(g.characterIds || []).includes(clue.id) && <CheckCircle2 size={12} />}
                   </button>
                 ))}
+                <button 
+                  onClick={() => handleOpenCreateGroupModal([clue.id])}
+                  className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border border-dashed border-slate-700 text-slate-500 hover:border-slate-500 flex items-center gap-2"
+                >
+                  <Plus size={12} /> 创建新分组
+                </button>
+                {(state.characterGroups || []).some(g => g.characterIds.includes(clue.id)) && (
+                    <button 
+                      onClick={() => {
+                          setState(prev => ({
+                              ...prev,
+                              characterGroups: prev.characterGroups.map(g => ({
+                                  ...g,
+                                  characterIds: g.characterIds.filter(id => id !== clue.id)
+                              }))
+                          }));
+                          setShowGroupPickerForCharId(null);
+                          setStatusMessage(`已将 ${clue.name} 移出所有分组`);
+                      }}
+                      className="w-full text-left px-3 py-2 rounded-xl text-xs font-bold border border-transparent text-red-400 hover:bg-red-900/20 flex items-center gap-2"
+                    >
+                      <Ungroup size={12} /> 移出所有分组
+                    </button>
+                )}
               </div>
             </div>
           </div>
@@ -655,38 +899,55 @@ const App: React.FC = () => {
                 <button onClick={() => { setSidebarTab('clues'); setSelectedSidebarCharIds(new Set()); }} className={`flex-1 py-3 text-xs font-bold uppercase tracking-wider transition-all ${sidebarTab === 'clues' ? 'text-amber-400 bg-slate-800 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}>证物清单 ({(state.clues || []).length})</button>
               </div>
               
-              {sidebarTab === 'characters' && selectedSidebarCharIds.size > 0 && (
-                <div className="bg-blue-600 px-4 py-2 flex items-center justify-between animate-in slide-in-from-top-4 duration-200">
-                    <span className="text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-2">
-                        <CheckCircle2 size={12} /> 已选 {selectedSidebarCharIds.size}
-                    </span>
-                    <div className="flex gap-2">
-                        <button onClick={handleAddAllToGraph} className="bg-white/10 hover:bg-white/20 text-white p-1 rounded transition-colors" title="添加至画布"><Plus size={14} /></button>
-                        <button onClick={() => setIsBatchGroupModalOpen(true)} className="bg-white/10 hover:bg-white/20 text-white p-1 rounded transition-colors" title="批量分组"><Layers size={14} /></button>
-                        <button onClick={() => setSelectedSidebarCharIds(new Set())} className="bg-white/10 hover:bg-white/20 text-white p-1 rounded transition-colors" title="清除选择"><X size={14} /></button>
+              {sidebarTab === 'characters' ? (
+                  selectedSidebarCharIds.size > 0 ? (
+                    <div className="bg-blue-600 px-4 py-2 flex items-center justify-between animate-in slide-in-from-top-4 duration-200">
+                        <span className="text-[10px] font-black text-white uppercase tracking-widest flex items-center gap-2">
+                            <CheckCircle2 size={12} /> 已选 {selectedSidebarCharIds.size}
+                        </span>
+                        <div className="flex gap-2">
+                            <button onClick={handleAddAllToGraph} className="bg-white/10 hover:bg-white/20 text-white p-1 rounded transition-colors" title="添加至画布"><Plus size={14} /></button>
+                            <button onClick={() => setIsBatchGroupModalOpen(true)} className="bg-white/10 hover:bg-white/20 text-white p-1 rounded transition-colors" title="批量分组"><Layers size={14} /></button>
+                            <button onClick={handleBatchUngroup} className="bg-white/10 hover:bg-white/20 text-white p-1 rounded transition-colors" title="移出所有分组"><Ungroup size={14} /></button>
+                            <button onClick={() => setSelectedSidebarCharIds(new Set())} className="bg-white/10 hover:bg-white/20 text-white p-1 rounded transition-colors" title="清除选择"><X size={14} /></button>
+                        </div>
                     </div>
-                </div>
-              )}
+                  ) : (
+                    <button 
+                        onClick={handleAddManualCharacter} 
+                        className="w-full py-2 bg-slate-800/50 hover:bg-slate-800 text-slate-400 hover:text-white border-b border-slate-700/50 text-[10px] font-bold flex items-center justify-center gap-2 transition-all"
+                    >
+                        <UserPlus size={12} /> 添加新人物
+                    </button>
+                  )
+              ) : null}
             </div>
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-5">
               {sidebarTab === 'characters' ? (
                 <>
                   {(state.characterGroups || []).map(group => {
                     const groupMembers = (state.characters || []).filter(c => !c.isVirtual && (group.characterIds || []).includes(c.id));
-                    if (groupMembers.length === 0) return null;
+                    // Allow rendering empty groups so we can drag items into them
                     return (
                       <div key={group.id} className="space-y-2 animate-in fade-in duration-300">
                         {renderGroupHeader(group)}
-                        <div className="space-y-1.5 pl-1">{groupMembers.map(char => renderCharacterCard(char))}</div>
+                        <div className="space-y-1.5 pl-1 min-h-[10px]">
+                            {groupMembers.map(char => renderCharacterCard(char, group.id))}
+                            {groupMembers.length === 0 && (
+                                <div className="text-[9px] text-slate-600 italic pl-2 py-1">暂无成员 (拖拽添加)</div>
+                            )}
+                        </div>
                       </div>
                     );
                   })}
-                  {(state.characters || []).filter(c => !c.isVirtual && !(state.characterGroups || []).some(g => (g.characterIds || []).includes(c.id))).length > 0 && (
-                    <div className="space-y-2 pt-1">
+                  
+                  {/* Ungrouped Characters */}
+                  <div className="space-y-2 pt-1">
                       <div className="flex items-center gap-2 px-1"><div className="w-2 h-2 rounded-full bg-slate-600 shadow-sm" /><span className="text-[9px] font-black uppercase tracking-widest text-slate-500">待定阵营</span><div className="flex-1 h-[1px] bg-gradient-to-r from-slate-700 to-transparent" /></div>
-                      <div className="space-y-1.5 pl-1">{(state.characters || []).filter(c => !c.isVirtual && !(state.characterGroups || []).some(g => (g.characterIds || []).includes(c.id))).map(char => renderCharacterCard(char))}</div>
-                    </div>
-                  )}
+                      <div className="space-y-1.5 pl-1">
+                          {(state.characters || []).filter(c => !c.isVirtual && !(state.characterGroups || []).some(g => (g.characterIds || []).includes(c.id))).map(char => renderCharacterCard(char))}
+                      </div>
+                  </div>
                 </>
               ) : (
                 <>
@@ -861,6 +1122,7 @@ const App: React.FC = () => {
         }} 
       />
 
+      {/* Batch Group Modal */}
       {isBatchGroupModalOpen && (
         <div className="fixed inset-0 z-[1000] flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
            <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-sm overflow-hidden animate-in zoom-in-95">
@@ -881,12 +1143,7 @@ const App: React.FC = () => {
                         </button>
                     ))}
                     <button 
-                        onClick={() => {
-                            const id = crypto.randomUUID();
-                            const newGroup = { id, label: "新批量分组", characterIds: [], color: '#'+Math.floor(Math.random()*16777215).toString(16).padStart(6,'0') };
-                            setState(p => ({ ...p, characterGroups: [...(p.characterGroups || []), newGroup] }));
-                            handleBatchGroup(id);
-                        }}
+                        onClick={() => handleOpenCreateGroupModal(Array.from(selectedSidebarCharIds))}
                         className="w-full text-left p-3 rounded-xl border border-dashed border-slate-700 text-slate-500 hover:border-slate-500 hover:text-slate-300 flex items-center gap-2"
                     >
                         <Plus size={16} /> 创建新分组
@@ -897,6 +1154,58 @@ const App: React.FC = () => {
                 <button onClick={() => setIsBatchGroupModalOpen(false)} className="w-full py-3 text-slate-400 font-bold hover:text-white transition-colors">取消操作</button>
               </div>
            </div>
+        </div>
+      )}
+
+      {/* Create Group Modal */}
+      {isCreateGroupModalOpen && (
+        <div className="fixed inset-0 z-[1200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+                <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+                    <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Layers size={16} className="text-indigo-400"/> 创建新分组</h3>
+                    <button onClick={() => setIsCreateGroupModalOpen(false)} className="text-slate-400 hover:text-white"><X size={18}/></button>
+                </div>
+                <div className="p-5 space-y-4">
+                    <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-700/50 text-xs text-slate-400 flex items-center gap-2">
+                        <div className="p-1 bg-indigo-500/20 rounded text-indigo-400"><CheckCircle2 size={12}/></div>
+                        <span>将包含 <strong className="text-white">{pendingGroupMemberIds.length}</strong> 个对象</span>
+                    </div>
+                    <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Type size={12}/> 分组名称</label>
+                        <input 
+                            autoFocus
+                            value={newGroupName}
+                            onChange={(e) => setNewGroupName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleConfirmCreateGroup()}
+                            placeholder="输入分组名称 (如: 侦探团)"
+                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-bold"
+                        />
+                    </div>
+                    <div className="space-y-3">
+                        <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Palette size={12}/> 分组颜色</label>
+                        <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl p-2">
+                            <div className="relative w-8 h-8 shrink-0">
+                                <input 
+                                    type="color" 
+                                    value={newGroupColor}
+                                    onChange={(e) => setNewGroupColor(e.target.value)}
+                                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                />
+                                <div className="w-full h-full rounded-lg shadow-sm border border-white/10" style={{ backgroundColor: newGroupColor }} />
+                            </div>
+                            <input 
+                                value={newGroupColor}
+                                onChange={(e) => setNewGroupColor(e.target.value)}
+                                className="flex-1 bg-transparent text-xs font-mono text-slate-400 outline-none uppercase"
+                            />
+                        </div>
+                    </div>
+                </div>
+                <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex gap-3">
+                    <button onClick={() => setIsCreateGroupModalOpen(false)} className="flex-1 py-2.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-700 rounded-xl transition-colors">取消</button>
+                    <button onClick={handleConfirmCreateGroup} disabled={!newGroupName.trim()} className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg transition-all">确认创建</button>
+                </div>
+            </div>
         </div>
       )}
 

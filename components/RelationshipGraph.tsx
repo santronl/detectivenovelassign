@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { Character, Relationship, RelationshipDef, CharacterGroup, Clue } from '../types';
-import { Move, Trash2, Users, Maximize, Package, Link as LinkIcon, X, Check, MousePointer2, Layers, Grid } from 'lucide-react';
+import { Move, Trash2, Users, Maximize, Package, Link as LinkIcon, X, Check, MousePointer2, Layers, Grid, Palette, Type, Ungroup, AlertCircle, CheckCircle2 } from 'lucide-react';
 
 interface Props {
   viewMode: 'people' | 'items';
@@ -26,7 +26,7 @@ interface Props {
 
 const RelationshipGraph: React.FC<Props> = ({ 
     viewMode, characters, clues, relationships, relationshipDefs, characterGroups, layout = {}, blobUrls,
-    onAddRelationship, onRemoveRelationship, onNodeDrop, onUpdateLayout, onRemoveNode, onUpdateDefs, onAddGroup
+    onAddRelationship, onRemoveRelationship, onNodeDrop, onUpdateLayout, onRemoveNode, onUpdateDefs, onAddGroup, onUpdateGroup
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -51,6 +51,13 @@ const RelationshipGraph: React.FC<Props> = ({
   const [linkModalData, setLinkModalData] = useState<{ sourceId: string, targetId: string } | null>(null);
   const [newRelLabel, setNewRelLabel] = useState("");
   const [newRelColor, setNewRelColor] = useState("#6366f1");
+
+  // Group Creation State
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupColor, setNewGroupColor] = useState("#3b82f6");
+  const [pendingGroupIds, setPendingGroupIds] = useState<string[]>([]);
+  const [excludedCount, setExcludedCount] = useState(0);
 
   const getDefByLabel = (label: string) => relationshipDefs.find(d => d.label === label);
 
@@ -112,17 +119,60 @@ const RelationshipGraph: React.FC<Props> = ({
       }
   };
 
-  const handleCreateGroup = () => {
-      const ids = Array.from(selectedNodeIds).filter(id => characters.some(c => c.id === id) || clues.some(c => c.id === id));
-      if (ids.length === 0) return;
+  const handleOpenGroupModal = () => {
+      const allSelected = Array.from(selectedNodeIds) as string[];
+      let validIds: string[] = [];
+
+      if (viewMode === 'items') {
+          // Evidence Logic Chain: Only allow clues to be grouped
+          validIds = allSelected.filter(id => clues.some(c => c.id === id));
+      } else {
+          // People Graph: Only allow characters to be grouped
+          validIds = allSelected.filter(id => characters.some(c => c.id === id));
+      }
+
+      if (validIds.length === 0) return;
+      
+      setPendingGroupIds(validIds);
+      setExcludedCount(allSelected.length - validIds.length);
+      setNewGroupName("新建分组");
+      setNewGroupColor('#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'));
+      setIsGroupModalOpen(true);
+  };
+
+  const handleConfirmCreateGroup = () => {
+      if (pendingGroupIds.length === 0 || !newGroupName.trim()) return;
 
       onAddGroup({
           id: crypto.randomUUID(),
-          label: "新建分组",
-          color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6,'0'),
-          characterIds: ids
+          label: newGroupName.trim(),
+          color: newGroupColor,
+          characterIds: pendingGroupIds
       });
       setSelectedNodeIds(new Set());
+      setIsGroupModalOpen(false);
+  };
+
+  const handleRemoveFromGroup = () => {
+      let updated = false;
+      // Also respect the view mode restriction for removing
+      const idsToRemove = viewMode === 'items' 
+          ? Array.from(selectedNodeIds).filter(id => clues.some(c => c.id === id))
+          : Array.from(selectedNodeIds).filter(id => characters.some(c => c.id === id));
+
+      if (idsToRemove.length === 0) return;
+      const idsSet = new Set(idsToRemove);
+
+      characterGroups.forEach(g => {
+          if (g.characterIds.some(id => idsSet.has(id))) {
+              const newIds = g.characterIds.filter(id => !idsSet.has(id));
+              if (newIds.length !== g.characterIds.length) {
+                  onUpdateGroup({ ...g, characterIds: newIds });
+                  updated = true;
+              }
+          }
+      });
+      if (updated) setSelectedNodeIds(new Set());
   };
 
   const handleMultiDelete = () => {
@@ -160,6 +210,7 @@ const RelationshipGraph: React.FC<Props> = ({
 
     if (svg.select(".content").empty()) {
       const g = svg.append("g").attr("class", "content");
+      g.append("g").attr("class", "groups-layer"); // Add Groups layer at the bottom
       g.append("g").attr("class", "links-layer");
       g.append("g").attr("class", "link-labels-layer");
       g.append("g").attr("class", "nodes-layer");
@@ -191,9 +242,6 @@ const RelationshipGraph: React.FC<Props> = ({
         zoom.filter((event) => {
              // Allow wheel zooming
              if (event.type === 'wheel') return true;
-             // Allow panning with middle mouse button or spacebar + left click? 
-             // For simplicity, just disable pan in select mode, or use right click/middle click.
-             // Let's rely on standard d3 behavior but prevent start on background mousedown for box select.
              return !event.button && event.type !== 'mousedown'; 
         });
         svg.call(zoom);
@@ -370,6 +418,51 @@ const RelationshipGraph: React.FC<Props> = ({
     const activeIds = new Set(displayNodes.map(n => n.id));
     const links = relationships.filter(r => activeIds.has(r.source) && activeIds.has(r.target));
     const getNode = (id: string) => displayNodes.find(n => n.id === id);
+
+    // --- Group Layer (Bottom) ---
+    const layerGroups = g.select(".groups-layer");
+    
+    // Calculate hull/blob for each group
+    const groupsToRender = characterGroups.map(group => {
+        const groupNodes = displayNodes.filter(n => group.characterIds.includes(n.id));
+        if (groupNodes.length === 0) return null;
+        return { group, nodes: groupNodes };
+    }).filter(Boolean) as {group: CharacterGroup, nodes: any[]}[];
+
+    const getGroupPath = (nodes: any[]) => {
+        if (nodes.length === 0) return "";
+        const points: [number, number][] = nodes.map(n => [n.x, n.y]);
+        
+        if (nodes.length === 1) {
+            // Draw a small circle path around the point
+            const p = points[0];
+            return `M ${p[0]} ${p[1]} L ${p[0] + 0.01} ${p[1]}`;
+        }
+        if (nodes.length === 2) {
+            // Draw a line connecting them (stroke width will make it a pill)
+            return `M ${points[0][0]} ${points[0][1]} L ${points[1][0]} ${points[1][1]}`;
+        }
+        const hull = d3.polygonHull(points);
+        if (!hull) return d3.line()(points); // Fallback if hull fails (e.g. collinear)
+        return d3.line().curve(d3.curveCatmullRomClosed)(hull);
+    };
+
+    layerGroups.selectAll("path.group-hull")
+        .data(groupsToRender, (d: any) => d.group.id)
+        .join(
+            enter => enter.append("path")
+                .attr("class", "group-hull")
+                .attr("fill", "none")
+                .attr("stroke-linejoin", "round")
+                .attr("stroke-linecap", "round")
+                .style("pointer-events", "none"),
+            update => update,
+            exit => exit.remove()
+        )
+        .attr("d", d => getGroupPath(d.nodes))
+        .attr("stroke", d => d.group.color)
+        .attr("stroke-width", 90) // Thick stroke creates the "blob" area
+        .attr("opacity", 0.15); // Semi-transparent
 
     // --- 连线层 ---
     const layerLinks = g.select(".links-layer");
@@ -602,6 +695,15 @@ const RelationshipGraph: React.FC<Props> = ({
                  return `translate(${(s.x+t.x)/2},${(s.y+t.y)/2})`;
              });
 
+            // Update Group Hulls
+            g.selectAll<SVGPathElement, any>(".group-hull")
+             .attr("d", gd => {
+                 // Re-calculate hull based on updated node positions
+                 // Since gd.nodes refs are same objects as in displayNodes (which we updated above), 
+                 // we can just re-run the hull generator
+                 return getGroupPath(gd.nodes);
+             });
+
         })
         .on("end", (e, d) => {
              if (mode !== 'move' && mode !== 'select') return;
@@ -656,7 +758,8 @@ const RelationshipGraph: React.FC<Props> = ({
            {mode === 'select' && selectedNodeIds.size > 0 && (
              <div className="bg-indigo-600/90 backdrop-blur px-4 py-1.5 rounded-xl border border-indigo-400/50 shadow-xl flex items-center gap-2 animate-in fade-in slide-in-from-left-2 pointer-events-auto">
                 <span className="text-[10px] font-bold text-white mr-2">已选中 {selectedNodeIds.size} 项</span>
-                <button onClick={handleCreateGroup} title="创建分组" className="p-1 hover:bg-white/20 rounded"><Layers size={12} className="text-white"/></button>
+                <button onClick={handleOpenGroupModal} title="创建分组" className="p-1 hover:bg-white/20 rounded"><Layers size={12} className="text-white"/></button>
+                <button onClick={handleRemoveFromGroup} title="移出所在分组" className="p-1 hover:bg-white/20 rounded"><Ungroup size={12} className="text-white"/></button>
                 <div className="w-[1px] h-3 bg-white/30"></div>
                 <button onClick={handleMultiDelete} title="批量删除" className="p-1 hover:bg-white/20 rounded"><Trash2 size={12} className="text-white"/></button>
                 <button onClick={() => setSelectedNodeIds(new Set())} title="取消选择" className="p-1 hover:bg-white/20 rounded"><X size={12} className="text-white"/></button>
@@ -715,6 +818,58 @@ const RelationshipGraph: React.FC<Props> = ({
                     <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex gap-3">
                         <button onClick={() => setLinkModalData(null)} className="flex-1 py-2.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-700 rounded-xl transition-colors">取消</button>
                         <button onClick={confirmConnection} disabled={!newRelLabel.trim()} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg transition-all">确认连线</button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Group Creation Modal */}
+        {isGroupModalOpen && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+                    <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+                        <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Layers size={16} className="text-indigo-400"/> 创建新分组</h3>
+                        <button onClick={() => setIsGroupModalOpen(false)} className="text-slate-400 hover:text-white"><X size={18}/></button>
+                    </div>
+                    <div className="p-5 space-y-4">
+                        <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-700/50 text-xs text-slate-400 flex items-center gap-2">
+                            <div className="p-1 bg-indigo-500/20 rounded text-indigo-400"><CheckCircle2 size={12}/></div>
+                            <span>将包含 <strong className="text-white">{pendingGroupIds.length}</strong> 个选中对象</span>
+                            {excludedCount > 0 && <span className="text-[9px] text-orange-400 ml-auto font-bold flex items-center gap-1"><AlertCircle size={10}/> 已过滤 {excludedCount} 项</span>}
+                        </div>
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Type size={12}/> 分组名称</label>
+                            <input 
+                                autoFocus
+                                value={newGroupName}
+                                onChange={(e) => setNewGroupName(e.target.value)}
+                                placeholder="输入分组名称 (如: 侦探团)"
+                                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:ring-1 focus:ring-indigo-500 transition-all font-bold"
+                            />
+                        </div>
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Palette size={12}/> 分组颜色</label>
+                            <div className="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl p-2">
+                                <div className="relative w-8 h-8 shrink-0">
+                                    <input 
+                                        type="color" 
+                                        value={newGroupColor}
+                                        onChange={(e) => setNewGroupColor(e.target.value)}
+                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                    />
+                                    <div className="w-full h-full rounded-lg shadow-sm border border-white/10" style={{ backgroundColor: newGroupColor }} />
+                                </div>
+                                <input 
+                                    value={newGroupColor}
+                                    onChange={(e) => setNewGroupColor(e.target.value)}
+                                    className="flex-1 bg-transparent text-xs font-mono text-slate-400 outline-none uppercase"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                    <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex gap-3">
+                        <button onClick={() => setIsGroupModalOpen(false)} className="flex-1 py-2.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-700 rounded-xl transition-colors">取消</button>
+                        <button onClick={handleConfirmCreateGroup} disabled={!newGroupName.trim()} className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg transition-all">确认创建</button>
                     </div>
                 </div>
             </div>
