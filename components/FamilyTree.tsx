@@ -62,7 +62,7 @@ const FamilyTree: React.FC<Props> = ({
         });
     }, [visibleCharacters, familyLinks]);
 
-    // --- 新的布局算法 (Strict Alignment Fix) ---
+    // --- 新的布局算法 (Fixed Asymmetric Gap Calculation) ---
 
     const layoutData = useMemo(() => {
         if (visibleCharacters.length === 0) return { nodePositions: {}, links: [], bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 } };
@@ -71,7 +71,6 @@ const FamilyTree: React.FC<Props> = ({
         const placedNodes = new Set<string>();
         let currentMaxX = 0;
 
-        // 1. 获取配偶
         const getSpouses = (id: string): string[] => {
             const spouses = new Set<string>();
             visibleLinks.forEach(l => {
@@ -83,28 +82,21 @@ const FamilyTree: React.FC<Props> = ({
             return Array.from(spouses).sort();
         };
 
-        // 2. 获取子女（逻辑修正：严格区分单亲和双亲）
-        // p2 为 null 时，获取 p1 的单亲子女（且该子女没有其他已知配偶作为父母）
         const getStrictChildren = (p1: string, p2: string | null): string[] => {
             const p1Spouses = getSpouses(p1);
-            
             const children = visibleLinks
                 .filter(l => {
                     if (l.type !== 'parent_child' || !l.child) return false;
                     const ps = l.parents || [];
-                    
                     if (p2) {
-                        // 双亲模式：必须严格同时包含 p1 和 p2
                         return ps.includes(p1) && ps.includes(p2);
                     } else {
-                        // 单亲模式：包含 p1，且不包含 p1 的任何其他已知配偶
                         if (!ps.includes(p1)) return false;
                         const hasOtherSpouse = ps.some(p => p !== p1 && p1Spouses.includes(p));
                         return !hasOtherSpouse;
                     }
                 })
                 .map(l => l.child!);
-            
             return Array.from(new Set<string>(children)).sort((a, b) => a.localeCompare(b));
         };
 
@@ -138,7 +130,6 @@ const FamilyTree: React.FC<Props> = ({
             }
         };
 
-        // 递归布局
         const layoutSubtree = (rootId: string, gen: number, startX: number): number => {
             if (placedNodes.has(rootId)) return 0;
 
@@ -154,60 +145,71 @@ const FamilyTree: React.FC<Props> = ({
             const nodeSequence = [...leftSpouses, rootId, ...rightSpouses];
             const gaps: number[] = new Array(Math.max(0, nodeSequence.length - 1)).fill(SPOUSE_GAP);
             
-            // 存储布局信息
             const jointLayouts: Record<string, { children: string[], width: number }> = {};
             const spouseSingleLayouts: Record<string, { children: string[], width: number }> = {};
 
-            // 1. Root 的单亲子女
             const rootSingleChildren = getStrictChildren(rootId, null);
             const rootSingleWidth = calculateChildrenBlockWidth(rootSingleChildren);
 
             const rootIdx = leftSpouses.length;
 
-            // 2. 计算左侧配偶的 Gap (配偶单亲 <-> 共同子女 <-> Root单亲)
+            // 2. 计算左侧配偶的 Gap (修正版：不对称碰撞检测)
             if (leftSpouses.length > 0) {
                 const spouseId = leftSpouses[leftSpouses.length - 1];
                 
-                // A. 共同子女
                 const jointChildren = getStrictChildren(rootId, spouseId);
                 const jointWidth = calculateChildrenBlockWidth(jointChildren);
                 jointLayouts[`${spouseId}-${rootId}`] = { children: jointChildren, width: jointWidth };
                 
-                // B. 配偶的单亲子女
                 const spouseSingleChildren = getStrictChildren(spouseId, null);
                 const spouseSingleWidth = calculateChildrenBlockWidth(spouseSingleChildren);
                 spouseSingleLayouts[spouseId] = { children: spouseSingleChildren, width: spouseSingleWidth };
 
-                // Gap 必须容纳：(配偶单亲宽/2) + (共同宽) + (Root单亲宽/2) - 卡片自身修正
-                // 注意：共同子女通常在中间，所以 Gap 是两侧撑开
-                const widthBetweenSpouseAndRoot = (spouseSingleWidth / 2) + jointWidth + (rootSingleWidth / 2);
-                // 减去卡片本身占据的宽度 (Spouse的一半 + Root的一半) -> 约等于一个 CARD_WIDTH
-                const requiredGap = Math.max(SPOUSE_GAP, widthBetweenSpouseAndRoot - CARD_WIDTH + SIBLING_GAP * 2);
+                // 【关键修复】分别计算两侧的碰撞需求，取最大值
+                // 情况A：左边配偶的单亲子女 撞到 中间的共同子女
+                // 公式推导：(SpouseSingle + Joint - CardWidth)
+                const collisionRiskLeft = spouseSingleWidth + jointWidth;
                 
-                gaps[rootIdx - 1] = requiredGap;
+                // 情况B：中间的共同子女 撞到 右边Root的单亲子女
+                const collisionRiskRight = jointWidth + rootSingleWidth;
+                
+                // 取最坏情况
+                const maxRiskWidth = Math.max(collisionRiskLeft, collisionRiskRight);
+                
+                // 如果任一侧有子女，则应用计算出的Gap；否则使用基础夫妻间隙
+                if (spouseSingleWidth > 0 || jointWidth > 0 || rootSingleWidth > 0) {
+                    // 保留 SIBLING_GAP 作为缓冲
+                    const requiredGap = Math.max(SPOUSE_GAP, maxRiskWidth - CARD_WIDTH + SIBLING_GAP);
+                    gaps[rootIdx - 1] = requiredGap;
+                }
             }
 
-            // 3. 计算右侧配偶的 Gap
+            // 3. 计算右侧配偶的 Gap (修正版：不对称碰撞检测)
             if (rightSpouses.length > 0) {
                 const spouseId = rightSpouses[0];
                 
-                // A. 共同子女
                 const jointChildren = getStrictChildren(rootId, spouseId);
                 const jointWidth = calculateChildrenBlockWidth(jointChildren);
                 jointLayouts[`${rootId}-${spouseId}`] = { children: jointChildren, width: jointWidth };
 
-                // B. 配偶的单亲子女
                 const spouseSingleChildren = getStrictChildren(spouseId, null);
                 const spouseSingleWidth = calculateChildrenBlockWidth(spouseSingleChildren);
                 spouseSingleLayouts[spouseId] = { children: spouseSingleChildren, width: spouseSingleWidth };
 
-                const widthBetweenRootAndSpouse = (rootSingleWidth / 2) + jointWidth + (spouseSingleWidth / 2);
-                const requiredGap = Math.max(SPOUSE_GAP, widthBetweenRootAndSpouse - CARD_WIDTH + SIBLING_GAP * 2);
+                // 同上，检查两侧碰撞
+                // 左侧是 Root 单亲，右侧是 Spouse 单亲，中间是 Joint
+                const collisionRiskLeft = rootSingleWidth + jointWidth;
+                const collisionRiskRight = jointWidth + spouseSingleWidth;
+                
+                const maxRiskWidth = Math.max(collisionRiskLeft, collisionRiskRight);
 
-                gaps[rootIdx] = requiredGap;
+                if (spouseSingleWidth > 0 || jointWidth > 0 || rootSingleWidth > 0) {
+                    const requiredGap = Math.max(SPOUSE_GAP, maxRiskWidth - CARD_WIDTH + SIBLING_GAP);
+                    gaps[rootIdx] = requiredGap;
+                }
             }
 
-            // 4. 放置当前层节点
+            // 4. 放置节点
             let currentX = startX;
             nodeSequence.forEach((nodeId, idx) => {
                 nodePositions[nodeId] = { x: currentX, y: gen * VERTICAL_SPACING, gen };
@@ -218,9 +220,7 @@ const FamilyTree: React.FC<Props> = ({
                 }
             });
 
-            // 5. 递归放置子女并校正
-
-            // 辅助：放置一组子女并对齐到 targetCenter
+            // 5. 递归放置子女
             const placeAndAlignChildren = (children: string[], width: number, targetCenterX: number) => {
                 if (children.length === 0) return;
                 let childStartX = targetCenterX - width / 2;
@@ -229,7 +229,6 @@ const FamilyTree: React.FC<Props> = ({
                     childStartX += w + SIBLING_GAP;
                 });
                 
-                // 校正
                 const childNodesX = children.map(c => nodePositions[c]?.x).filter(x => x !== undefined);
                 if (childNodesX.length > 0) {
                     const minX = Math.min(...childNodesX);
@@ -240,20 +239,18 @@ const FamilyTree: React.FC<Props> = ({
                 }
             };
 
-            // 5a. 左侧配偶相关子女
+            // 5a. 左侧配偶相关
             if (leftSpouses.length > 0) {
                 const spouseId = leftSpouses[leftSpouses.length - 1];
                 const pSpouse = nodePositions[spouseId];
                 const pRoot = nodePositions[rootId];
 
-                // 放置共同子女 (对齐到夫妻中间)
                 const jointData = jointLayouts[`${spouseId}-${rootId}`];
                 if (jointData) {
                     const jointCenter = (pSpouse.x + pRoot.x + CARD_WIDTH) / 2;
                     placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
                 }
                 
-                // 放置配偶单亲子女 (对齐到配偶正下方)
                 const singleData = spouseSingleLayouts[spouseId];
                 if (singleData) {
                     const spouseCenter = pSpouse.x + CARD_WIDTH / 2;
@@ -261,20 +258,18 @@ const FamilyTree: React.FC<Props> = ({
                 }
             }
 
-            // 5b. 右侧配偶相关子女
+            // 5b. 右侧配偶相关
             if (rightSpouses.length > 0) {
                 const spouseId = rightSpouses[0];
                 const pRoot = nodePositions[rootId];
                 const pSpouse = nodePositions[spouseId];
 
-                // 放置共同子女
                 const jointData = jointLayouts[`${rootId}-${spouseId}`];
                 if (jointData) {
                     const jointCenter = (pRoot.x + pSpouse.x + CARD_WIDTH) / 2;
                     placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
                 }
 
-                // 放置配偶单亲子女
                 const singleData = spouseSingleLayouts[spouseId];
                 if (singleData) {
                     const spouseCenter = pSpouse.x + CARD_WIDTH / 2;
@@ -282,7 +277,7 @@ const FamilyTree: React.FC<Props> = ({
                 }
             }
 
-            // 5c. Root 的单亲子女 (对齐到 Root 正下方)
+            // 5c. Root 单亲
             if (rootSingleChildren.length > 0) {
                 const pRoot = nodePositions[rootId];
                 const rootCenter = pRoot.x + CARD_WIDTH / 2;
