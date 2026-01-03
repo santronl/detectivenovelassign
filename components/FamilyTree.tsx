@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
@@ -378,7 +377,7 @@ const FamilyTree: React.FC<Props> = ({
         const svg = d3.select(svgRef.current);
         const zoomBehavior = d3.zoom<SVGSVGElement, any>()
             .scaleExtent([0.1, 5])
-            .on("zoom", (event: d3.D3ZoomEvent<SVGSVGElement, any>) => {
+            .on("zoom", (event: any) => {
                 setTransform({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
             });
         svg.call(zoomBehavior);
@@ -643,7 +642,75 @@ const FamilyTree: React.FC<Props> = ({
                 </svg>
             </div>
 
-            {/* Modals & Dialogs (Same as before) */}
+            {/* Modals & Dialogs */}
+            {isGuideOpen && (
+                <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95">
+                        <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-700">
+                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                                <HelpCircle size={18} className="text-indigo-400" /> 操作指南
+                            </h3>
+                            <button onClick={() => setIsGuideOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="space-y-4 text-xs text-slate-300">
+                            <div className="flex gap-3">
+                                <div className="p-2 bg-slate-900 rounded-lg h-fit border border-slate-700">
+                                    <MousePointer2 size={16} className="text-blue-400" />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-white mb-1">拖拽交互</h4>
+                                    <p className="opacity-70 leading-relaxed">从左侧人物列表长按并拖拽角色头像进入画布。已在画布上的角色也可再次拖拽用于建立关系。</p>
+                                </div>
+                            </div>
+                            
+                            <div className="flex gap-3">
+                                <div className="p-2 bg-slate-900 rounded-lg h-fit border border-slate-700">
+                                    <GitBranch size={16} className="text-pink-400" />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-white mb-1">建立亲属关系</h4>
+                                    <p className="opacity-70 leading-relaxed mb-2">将角色拖拽至已有卡片的特定区域：</p>
+                                    <div className="grid grid-cols-2 gap-2 text-[10px]">
+                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-pink-500"></span> 侧边：添加配偶
+                                        </div>
+                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-indigo-500"></span> 顶部：添加父母
+                                        </div>
+                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
+                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span> 底部：添加子女
+                                        </div>
+                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
+                                            <Heart size={8} className="text-pink-400" /> 连线中心：共同子女
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <div className="p-2 bg-slate-900 rounded-lg h-fit border border-slate-700">
+                                    <Edit3 size={16} className="text-amber-400" />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-white mb-1">管理与编辑</h4>
+                                    <p className="opacity-70 leading-relaxed">
+                                        • 点击婚姻连线上的 <Heart size={10} className="inline text-pink-400"/> 图标可修改关系名称（如：前妻、情夫）。<br/>
+                                        • 使用右上角 <UserRoundPlus size={10} className="inline text-indigo-400"/> 创建虚拟节点（如：未知父亲）。
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="mt-6 pt-4 border-t border-slate-700">
+                            <button onClick={() => setIsGuideOpen(false)} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-lg transition-all">
+                                我知道了
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {isAddingVirtual && (
                 <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
