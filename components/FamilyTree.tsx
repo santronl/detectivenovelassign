@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
@@ -21,7 +22,7 @@ interface Props {
 
 const CARD_WIDTH = 160;
 const CARD_HEIGHT = 80;
-const SPOUSE_GAP = 40; // 基础夫妻间隙
+const SPOUSE_GAP = 120; // 基础夫妻间隙 (增加以避免感应区重叠)
 const SIBLING_GAP = 40; // 兄弟姐妹之间的间隙
 const COUSIN_GAP = 80; // 堂表亲（不同家庭）之间的间隙
 const VERTICAL_SPACING = 200; // 代际高度
@@ -360,7 +361,8 @@ const FamilyTree: React.FC<Props> = ({
         const ty = 100 - minY * k; // 顶部留白
 
         const svg = d3.select(svgRef.current);
-        const zoomBehavior = d3.zoom<SVGSVGElement, unknown>().scaleExtent([0.1, 5]);
+        // Explicitly set datum type to 'any' to avoid type issues in some environments
+        const zoomBehavior = d3.zoom<SVGSVGElement, any>().scaleExtent([0.1, 5]);
         
         const transform = d3.zoomIdentity.translate(tx, ty).scale(k);
         
@@ -374,9 +376,9 @@ const FamilyTree: React.FC<Props> = ({
     useEffect(() => {
         if (!svgRef.current) return;
         const svg = d3.select(svgRef.current);
-        const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+        const zoomBehavior = d3.zoom<SVGSVGElement, any>()
             .scaleExtent([0.1, 5])
-            .on("zoom", (event: any) => {
+            .on("zoom", (event: d3.D3ZoomEvent<SVGSVGElement, any>) => {
                 setTransform({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
             });
         svg.call(zoomBehavior);
