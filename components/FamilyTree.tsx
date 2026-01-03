@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
-import { User, Heart, ArrowDown, ArrowUp, Maximize, Minimize, GitBranch, X, UserMinus, MousePointer2, UserRoundPlus, Hash, GripHorizontal, Crosshair, Link2, Edit3, HelpCircle, ExternalLink } from 'lucide-react';
+import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair } from 'lucide-react';
 import PortalWindow from './PortalWindow';
 
 interface Props {
@@ -21,7 +22,7 @@ interface Props {
 
 const CARD_WIDTH = 160;
 const CARD_HEIGHT = 80;
-const SPOUSE_GAP = 120; // 基础夫妻间隙 (增加以避免感应区重叠)
+const SPOUSE_GAP = 120; // 基础夫妻间隙
 const SIBLING_GAP = 40; // 兄弟姐妹之间的间隙
 const COUSIN_GAP = 80; // 堂表亲（不同家庭）之间的间隙
 const VERTICAL_SPACING = 200; // 代际高度
@@ -62,8 +63,7 @@ const FamilyTree: React.FC<Props> = ({
         });
     }, [visibleCharacters, familyLinks]);
 
-    // --- 新的布局算法 (Fixed Asymmetric Gap Calculation) ---
-
+    // --- 布局算法 ---
     const layoutData = useMemo(() => {
         type NodePos = { x: number, y: number, gen: number };
         const emptyResult = { 
@@ -98,6 +98,7 @@ const FamilyTree: React.FC<Props> = ({
                         return ps.includes(p1) && ps.includes(p2);
                     } else {
                         if (!ps.includes(p1)) return false;
+                        // 确保不是其他配偶的孩子
                         const hasOtherSpouse = ps.some(p => p !== p1 && p1Spouses.includes(p));
                         return !hasOtherSpouse;
                     }
@@ -153,16 +154,14 @@ const FamilyTree: React.FC<Props> = ({
             
             const jointLayouts: Record<string, { children: string[], width: number }> = {};
             const spouseSingleLayouts: Record<string, { children: string[], width: number }> = {};
-
             const rootSingleChildren = getStrictChildren(rootId, null);
             const rootSingleWidth = calculateChildrenBlockWidth(rootSingleChildren);
 
             const rootIdx = leftSpouses.length;
 
-            // 2. 计算左侧配偶的 Gap (修正版：不对称碰撞检测)
+            // 间隙计算逻辑 (简化版)
             if (leftSpouses.length > 0) {
                 const spouseId = leftSpouses[leftSpouses.length - 1];
-                
                 const jointChildren = getStrictChildren(rootId, spouseId);
                 const jointWidth = calculateChildrenBlockWidth(jointChildren);
                 jointLayouts[`${spouseId}-${rootId}`] = { children: jointChildren, width: jointWidth };
@@ -171,29 +170,14 @@ const FamilyTree: React.FC<Props> = ({
                 const spouseSingleWidth = calculateChildrenBlockWidth(spouseSingleChildren);
                 spouseSingleLayouts[spouseId] = { children: spouseSingleChildren, width: spouseSingleWidth };
 
-                // 【关键修复】分别计算两侧的碰撞需求，取最大值
-                // 情况A：左边配偶的单亲子女 撞到 中间的共同子女
-                // 公式推导：(SpouseSingle + Joint - CardWidth)
-                const collisionRiskLeft = spouseSingleWidth + jointWidth;
-                
-                // 情况B：中间的共同子女 撞到 右边Root的单亲子女
-                const collisionRiskRight = jointWidth + rootSingleWidth;
-                
-                // 取最坏情况
-                const maxRiskWidth = Math.max(collisionRiskLeft, collisionRiskRight);
-                
-                // 如果任一侧有子女，则应用计算出的Gap；否则使用基础夫妻间隙
                 if (spouseSingleWidth > 0 || jointWidth > 0 || rootSingleWidth > 0) {
-                    // 保留 SIBLING_GAP 作为缓冲
-                    const requiredGap = Math.max(SPOUSE_GAP, maxRiskWidth - CARD_WIDTH + SIBLING_GAP);
+                    const requiredGap = Math.max(SPOUSE_GAP, spouseSingleWidth + jointWidth + rootSingleWidth - CARD_WIDTH + SIBLING_GAP);
                     gaps[rootIdx - 1] = requiredGap;
                 }
             }
 
-            // 3. 计算右侧配偶的 Gap (修正版：不对称碰撞检测)
             if (rightSpouses.length > 0) {
                 const spouseId = rightSpouses[0];
-                
                 const jointChildren = getStrictChildren(rootId, spouseId);
                 const jointWidth = calculateChildrenBlockWidth(jointChildren);
                 jointLayouts[`${rootId}-${spouseId}`] = { children: jointChildren, width: jointWidth };
@@ -202,20 +186,13 @@ const FamilyTree: React.FC<Props> = ({
                 const spouseSingleWidth = calculateChildrenBlockWidth(spouseSingleChildren);
                 spouseSingleLayouts[spouseId] = { children: spouseSingleChildren, width: spouseSingleWidth };
 
-                // 同上，检查两侧碰撞
-                // 左侧是 Root 单亲，右侧是 Spouse 单亲，中间是 Joint
-                const collisionRiskLeft = rootSingleWidth + jointWidth;
-                const collisionRiskRight = jointWidth + spouseSingleWidth;
-                
-                const maxRiskWidth = Math.max(collisionRiskLeft, collisionRiskRight);
-
                 if (spouseSingleWidth > 0 || jointWidth > 0 || rootSingleWidth > 0) {
-                    const requiredGap = Math.max(SPOUSE_GAP, maxRiskWidth - CARD_WIDTH + SIBLING_GAP);
+                    const requiredGap = Math.max(SPOUSE_GAP, rootSingleWidth + jointWidth + spouseSingleWidth - CARD_WIDTH + SIBLING_GAP);
                     gaps[rootIdx] = requiredGap;
                 }
             }
 
-            // 4. 放置节点
+            // 放置节点
             let currentX = startX;
             nodeSequence.forEach((nodeId, idx) => {
                 nodePositions[nodeId] = { x: currentX, y: gen * VERTICAL_SPACING, gen };
@@ -226,7 +203,7 @@ const FamilyTree: React.FC<Props> = ({
                 }
             });
 
-            // 5. 递归放置子女
+            // 放置子女
             const placeAndAlignChildren = (children: string[], width: number, targetCenterX: number) => {
                 if (children.length === 0) return;
                 let childStartX = targetCenterX - width / 2;
@@ -245,18 +222,16 @@ const FamilyTree: React.FC<Props> = ({
                 }
             };
 
-            // 5a. 左侧配偶相关
+            // 处理左侧配偶子女
             if (leftSpouses.length > 0) {
                 const spouseId = leftSpouses[leftSpouses.length - 1];
                 const pSpouse = nodePositions[spouseId];
                 const pRoot = nodePositions[rootId];
-
                 const jointData = jointLayouts[`${spouseId}-${rootId}`];
                 if (jointData) {
                     const jointCenter = (pSpouse.x + pRoot.x + CARD_WIDTH) / 2;
                     placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
                 }
-                
                 const singleData = spouseSingleLayouts[spouseId];
                 if (singleData) {
                     const spouseCenter = pSpouse.x + CARD_WIDTH / 2;
@@ -264,18 +239,16 @@ const FamilyTree: React.FC<Props> = ({
                 }
             }
 
-            // 5b. 右侧配偶相关
+            // 处理右侧配偶子女
             if (rightSpouses.length > 0) {
                 const spouseId = rightSpouses[0];
                 const pRoot = nodePositions[rootId];
                 const pSpouse = nodePositions[spouseId];
-
                 const jointData = jointLayouts[`${rootId}-${spouseId}`];
                 if (jointData) {
                     const jointCenter = (pRoot.x + pSpouse.x + CARD_WIDTH) / 2;
                     placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
                 }
-
                 const singleData = spouseSingleLayouts[spouseId];
                 if (singleData) {
                     const spouseCenter = pSpouse.x + CARD_WIDTH / 2;
@@ -283,12 +256,11 @@ const FamilyTree: React.FC<Props> = ({
                 }
             }
 
-            // 5c. Root 单亲
+            // 处理Root单亲子女
             if (rootSingleChildren.length > 0) {
                 const pRoot = nodePositions[rootId];
                 const rootCenter = pRoot.x + CARD_WIDTH / 2;
                 placeAndAlignChildren(rootSingleChildren, rootSingleWidth, rootCenter);
-                
                 if (allSpouses.length === 0) {
                      return Math.max(currentX - startX, rootSingleWidth);
                 }
@@ -366,9 +338,7 @@ const FamilyTree: React.FC<Props> = ({
         const ty = 100 - minY * k; // 顶部留白
 
         const svg = d3.select(svgRef.current);
-        // Explicitly set datum type to 'any' to avoid type issues in some environments
         const zoomBehavior = d3.zoom<SVGSVGElement, any>().scaleExtent([0.1, 5]);
-        
         const transform = d3.zoomIdentity.translate(tx, ty).scale(k);
         
         if (animate) {
@@ -390,25 +360,15 @@ const FamilyTree: React.FC<Props> = ({
     }, []);
 
     useEffect(() => {
-        // 数据变化后延迟适应视图
         const timer = setTimeout(() => fitToView(true), 100);
         return () => clearTimeout(timer);
     }, [layoutData.bounds.minX, fitToView]);
-
-    // --- 交互处理 ---
 
     const handleConfirmVirtual = () => {
         if (!virtualName.trim()) return;
         onAddVirtualChar(virtualName.trim());
         setVirtualName("");
         setIsAddingVirtual(false);
-    };
-
-    const handleUpdateLinkLabel = () => {
-        if (editingLink && onUpdateFamilyLink) {
-            onUpdateFamilyLink({ ...editingLink, label: tempLinkLabel });
-            setEditingLink(null);
-        }
     };
 
     const handleDropOnPerson = (e: React.DragEvent, targetId: string, zone: 'parent' | 'spouse' | 'child_single' | 'other_relation') => {
@@ -430,421 +390,226 @@ const FamilyTree: React.FC<Props> = ({
         } else if (zone === 'child_single') {
             onAddFamilyLink({ id: crypto.randomUUID(), type: 'parent_child', parents: [targetId], child: sourceId });
         }
-        if (ids.length > 1) ids.slice(1).forEach((id:string) => onAddActiveChar(id));
     };
 
-    const handleDropOnMarriage = (e: React.DragEvent, linkId: string) => {
+    const handleDropOnJoint = (e: React.DragEvent, p1: string, p2: string) => {
         e.preventDefault(); e.stopPropagation();
         setDropTarget(null);
         const ids = (e.dataTransfer.getData("application/mysterymind-ids") ? JSON.parse(e.dataTransfer.getData("application/mysterymind-ids")) : [e.dataTransfer.getData("application/react-dnd-char-id")]);
-        const link = familyLinks.find(l => l.id === linkId);
-        if (ids.length === 0 || !link || !link.partners || !ids[0]) return;
+        if (ids.length === 0 || !ids[0]) return;
+        const childId = ids[0];
         
-        const sourceId = ids[0];
-        onAddActiveChar(sourceId);
-        // 添加为该对夫妻的子女
-        onAddFamilyLink({ id: crypto.randomUUID(), type: 'parent_child', parents: [link.partners[0], link.partners[1]], child: sourceId });
-        
-        if (ids.length > 1) ids.slice(1).forEach((id:string) => onAddActiveChar(id));
+        onAddActiveChar(childId);
+        onAddFamilyLink({ id: crypto.randomUUID(), type: 'parent_child', parents: [p1, p2], child: childId });
     };
 
-    // 渲染内容
+    const renderLinks = () => {
+        const links: JSX.Element[] = [];
+        const { nodePositions } = layoutData;
+
+        // 婚姻连线
+        familyLinks.forEach(link => {
+             if (link.type === 'marriage' && link.partners && link.partners.length === 2) {
+                 const p1 = nodePositions[link.partners[0]];
+                 const p2 = nodePositions[link.partners[1]];
+                 if (p1 && p2 && p1.y === p2.y) { 
+                     const x1 = Math.min(p1.x, p2.x) + CARD_WIDTH;
+                     const x2 = Math.max(p1.x, p2.x);
+                     const y = p1.y + CARD_HEIGHT / 2;
+                     const centerX = (x1 + x2) / 2;
+
+                     links.push(
+                         <g key={link.id}>
+                             <path d={`M ${x1} ${y} L ${x2} ${y}`} stroke="#ec4899" strokeWidth={2} strokeDasharray="4,2" />
+                             <circle cx={centerX} cy={y} r={4} fill="#ec4899" />
+                             <Heart x={centerX - 6} y={y - 6} size={12} className="text-pink-500" fill="currentColor" />
+                             <circle 
+                                cx={centerX} cy={y} r={20} fill="transparent" 
+                                onDragOver={(e) => { e.preventDefault(); setDropTarget({ id: link.id, zone: 'marriage_joint' }); }}
+                                onDragLeave={() => setDropTarget(null)}
+                                onDrop={(e) => handleDropOnJoint(e, link.partners![0], link.partners![1])}
+                                stroke={dropTarget?.id === link.id ? '#ec4899' : 'none'} strokeWidth={2}
+                             />
+                         </g>
+                     );
+                 }
+             }
+        });
+
+        // 亲子连线
+        familyLinks.forEach(link => {
+            if (link.type === 'parent_child' && link.child) {
+                const childPos = nodePositions[link.child];
+                if (!childPos) return;
+
+                let parentX = 0;
+                let parentY = 0;
+                
+                if (link.parents) {
+                    const parentPositions = link.parents.map(pid => nodePositions[pid]).filter(Boolean);
+                    if (parentPositions.length > 0) {
+                        let minPX = Math.min(...parentPositions.map(p => p.x));
+                        let maxPX = Math.max(...parentPositions.map(p => p.x + CARD_WIDTH));
+                        parentX = (minPX + maxPX) / 2;
+                        parentY = parentPositions[0].y + CARD_HEIGHT;
+                    }
+                }
+                
+                if (parentX !== 0) {
+                    const childCenterX = childPos.x + CARD_WIDTH / 2;
+                    const childTopY = childPos.y;
+                    const midY = (parentY + childTopY) / 2;
+                    links.push(
+                        <path 
+                            key={link.id}
+                            d={`M ${parentX} ${parentY - CARD_HEIGHT/2} L ${parentX} ${midY} L ${childCenterX} ${midY} L ${childCenterX} ${childTopY}`}
+                            fill="none" stroke="#64748b" strokeWidth={1.5}
+                        />
+                    );
+                }
+            }
+        });
+        return links;
+    };
+
     const renderContent = () => (
-        <>
-            {/* HUD / Controls */}
-            <div className="absolute top-6 right-6 z-20 flex gap-2 pointer-events-auto">
-                <button onClick={() => fitToView()} className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl border border-slate-700 shadow-xl transition-all active:scale-95" title="自适应视图中心">
-                    <Crosshair size={20} />
-                </button>
-                <button onClick={() => setIsAddingVirtual(true)} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-xl border border-slate-700 shadow-xl transition-all font-bold text-xs active:scale-95">
-                    <UserRoundPlus size={16} /> 添加占位符
-                </button>
-                <button onClick={() => setIsGuideOpen(true)} className="p-2.5 bg-slate-800 hover:bg-slate-700 text-indigo-400 rounded-xl border border-slate-700 shadow-xl transition-all active:scale-95" title="操作指南">
-                    <HelpCircle size={20} />
-                </button>
-                <button onClick={() => setIsPoppedOut(!isPoppedOut)} className="p-2.5 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-xl border border-slate-700 shadow-xl transition-all active:scale-95" title="在新窗口中打开">
-                    {isPoppedOut ? <Minimize size={20} /> : <ExternalLink size={20} />}
-                </button>
-            </div>
-
-            <div className="absolute top-6 left-6 z-20 pointer-events-none flex flex-col gap-2">
-                <div className="bg-slate-900/80 backdrop-blur px-4 py-2 rounded-xl border border-slate-700 shadow-xl flex items-center gap-3 pointer-events-auto">
-                    <div className="p-1.5 bg-indigo-600 rounded-lg shadow-lg"><GitBranch size={16} className="text-white" /></div>
-                    <div>
-                        <h3 className="text-xs font-black text-white uppercase tracking-widest">代际家谱视图</h3>
-                        <p className="text-[9px] text-slate-500 font-bold italic">每一层代表一代人，夫妻横向对齐</p>
-                    </div>
+        <div className="w-full h-full relative bg-[#0f172a] overflow-hidden" ref={containerRef}>
+            <div className="absolute top-4 left-4 z-10 flex gap-2">
+                <button onClick={() => fitToView(true)} className="p-2 bg-slate-800 rounded-lg border border-slate-700 hover:bg-slate-700 text-slate-300"><Crosshair size={18}/></button>
+                <div className="flex bg-slate-800 rounded-lg border border-slate-700 p-1">
+                    <input 
+                        className="bg-transparent text-sm px-2 py-1 outline-none text-white w-40"
+                        placeholder="搜索家族成员..."
+                        value={searchTerm}
+                        onChange={e => setSearchTerm(e.target.value)}
+                    />
                 </div>
             </div>
-
-            <div className="flex-1 overflow-hidden relative">
-                <svg ref={svgRef} className="absolute inset-0 w-full h-full pointer-events-auto cursor-move">
-                    <g transform={`translate(${transform.x},${transform.y}) scale(${transform.k})`}>
+            
+            <svg ref={svgRef} className="w-full h-full cursor-grab active:cursor-grabbing">
+                <g transform={`translate(${transform.x},${transform.y}) scale(${transform.k})`}>
+                    {renderLinks()}
+                    {Object.entries(layoutData.nodePositions).map(([id, pos]) => {
+                        const char = characters.find(c => c.id === id);
+                        if (!char) return null;
+                        const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
+                        const isHovered = hoveredCharId === id;
                         
-                        {/* 1. 绘制婚姻连线 */}
-                        {visibleLinks.filter(l => l.type === 'marriage').map(link => {
-                            const p1 = layoutData.nodePositions[link.partners![0]];
-                            const p2 = layoutData.nodePositions[link.partners![1]];
-                            if (!p1 || !p2) return null;
-                            
-                            const x1 = p1.x;
-                            const x2 = p2.x;
-                            
-                            // 总是从左侧卡片的右边连到右侧卡片的左边
-                            const leftNode = x1 < x2 ? p1 : p2;
-                            const rightNode = x1 < x2 ? p2 : p1;
-                            
-                            const startX = leftNode.x + CARD_WIDTH;
-                            const endX = rightNode.x;
-                            const y = leftNode.y + CARD_HEIGHT / 2;
-                            const midX = (startX + endX) / 2;
-
-                            return (
-                                <g key={link.id} className="group/marriage">
-                                    <line x1={startX} y1={y} x2={endX} y2={y} stroke="#f472b6" strokeWidth={3} />
-                                    {/* 婚姻节点 (Drop Zone) */}
-                                    <g 
-                                        transform={`translate(${midX}, ${y})`}
-                                        onClick={(e) => { e.stopPropagation(); setEditingLink(link); setTempLinkLabel(link.label || ''); }}
-                                        onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDropTarget({id: link.id, zone: 'marriage_joint'}); }} 
-                                        onDragLeave={() => setDropTarget(null)} 
-                                        onDrop={e => handleDropOnMarriage(e, link.id)} 
-                                        className="cursor-pointer transition-transform hover:scale-125"
-                                    >
-                                        <circle r={24} fill="transparent" /> {/* 扩大感应区 */}
-                                        <circle r={10} fill="#f472b6" stroke="#fff" strokeWidth={2} />
-                                        <Heart size={10} className="text-white" x={-5} y={-5} />
-                                    </g>
-                                </g>
-                            );
-                        })}
-
-                        {/* 2. 绘制亲子连线 (倒T型) */}
-                        {visibleLinks.filter(l => l.type === 'parent_child' && l.child).map(link => {
-                            const childPos = layoutData.nodePositions[link.child!];
-                            if (!childPos) return null;
-
-                            // 寻找可见的父母节点
-                            const visibleParentIds = (link.parents || []).filter(pid => !!layoutData.nodePositions[pid]);
-                            
-                            if (visibleParentIds.length === 0) return null;
-
-                            let startX = 0;
-                            let startY = 0;
-                            
-                            if (visibleParentIds.length >= 2) {
-                                // 双亲：从两个父母的几何中心发出
-                                const p1 = layoutData.nodePositions[visibleParentIds[0]];
-                                const p2 = layoutData.nodePositions[visibleParentIds[1]];
-                                
-                                startX = (p1.x + p2.x + CARD_WIDTH) / 2;
-                                startY = p1.y + CARD_HEIGHT / 2; // 从婚姻线高度发出
-                            } else {
-                                // 单亲：从该父母卡片底部中心发出
-                                const p = layoutData.nodePositions[visibleParentIds[0]];
-                                startX = p.x + CARD_WIDTH / 2;
-                                startY = p.y + CARD_HEIGHT;
-                            }
-
-                            const endX = childPos.x + CARD_WIDTH / 2;
-                            const endY = childPos.y;
-                            
-                            // 曼哈顿路径
-                            const midY = startY + (endY - startY) / 2;
-                            const pathData = `M ${startX} ${startY} V ${midY} H ${endX} V ${endY}`;
-
-                            return (
-                                <path 
-                                    key={link.id}
-                                    d={pathData}
-                                    fill="none"
-                                    stroke="#64748b"
-                                    strokeWidth={2}
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    className="opacity-50 hover:opacity-100 transition-opacity"
-                                />
-                            );
-                        })}
-
-                        {/* 3. 绘制节点卡片 */}
-                        {Object.entries(layoutData.nodePositions).map(([id, pos]) => {
-                            const char = characters.find(c => c.id === id);
-                            if (!char) return null;
-                            const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
-                            const isHighlighted = hoveredCharId === id;
-                            const isActive = !!hoveredCharId;
-
-                            return (
-                                <foreignObject 
-                                    key={id} 
-                                    x={pos.x} 
-                                    y={pos.y} 
-                                    width={CARD_WIDTH} 
-                                    height={CARD_HEIGHT}
-                                    className="overflow-visible"
+                        return (
+                            <foreignObject key={id} x={pos.x} y={pos.y} width={CARD_WIDTH} height={CARD_HEIGHT}>
+                                <div 
+                                    className={`w-full h-full bg-slate-800 rounded-xl border-2 transition-all flex items-center p-2 gap-2 relative group 
+                                        ${isHovered ? 'border-blue-400 shadow-lg shadow-blue-500/20' : 'border-slate-600'}
+                                    `}
+                                    onMouseEnter={() => setHoveredCharId(id)}
+                                    onMouseLeave={() => setHoveredCharId(null)}
+                                    draggable
+                                    onDragStart={(e) => {
+                                        e.dataTransfer.setData("application/react-dnd-char-id", id);
+                                    }}
+                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                                    onDrop={(e) => handleDropOnPerson(e, id, 'parent')}
                                 >
-                                    <div 
-                                        draggable 
-                                        onDragStart={(e) => {
-                                            e.dataTransfer.setData("application/react-dnd-char-id", char.id);
-                                            e.stopPropagation();
-                                        }}
-                                        onMouseEnter={() => setHoveredCharId(char.id)} 
-                                        onMouseLeave={() => setHoveredCharId(null)} 
-                                        className={`w-full h-full rounded-xl border-2 bg-slate-800 flex items-center p-2 relative shadow-lg group transition-all duration-300
-                                            ${char.isVirtual ? 'border-dashed border-slate-600 opacity-80' : 'border-slate-600 hover:border-indigo-400'}
-                                            ${isHighlighted ? 'scale-105 z-10 ring-4 ring-indigo-500/30' : isActive ? 'opacity-40' : ''}
-                                        `}
+                                    <div className="absolute inset-0 z-20 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
+                                        <div 
+                                            className="absolute right-0 top-0 bottom-0 w-6 bg-pink-500/20 hover:bg-pink-500/40 cursor-copy"
+                                            title="拖拽此处建立婚姻"
+                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'spouse'}); }}
+                                            onDragLeave={() => setDropTarget(null)}
+                                            onDrop={(e) => handleDropOnPerson(e, id, 'spouse')}
+                                        />
+                                        <div 
+                                            className="absolute bottom-0 left-0 right-0 h-6 bg-blue-500/20 hover:bg-blue-500/40 cursor-copy"
+                                            title="拖拽此处添加子女 (单亲)"
+                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'child_single'}); }}
+                                            onDragLeave={() => setDropTarget(null)}
+                                            onDrop={(e) => handleDropOnPerson(e, id, 'child_single')}
+                                        />
+                                    </div>
+
+                                    <div className="w-10 h-10 rounded-full bg-slate-900 overflow-hidden shrink-0 border border-slate-500">
+                                        {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover" /> : <User size={20} className="text-slate-500 m-2" />}
+                                    </div>
+                                    <div className="flex flex-col min-w-0">
+                                        <span className="text-xs font-bold text-slate-200 truncate">{char.name}</span>
+                                        <span className="text-[10px] text-slate-500 truncate">{char.raw_info || '无信息'}</span>
+                                    </div>
+
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); onRemoveActiveChar(id); }}
+                                        className="absolute -top-2 -right-2 p-1 bg-slate-700 hover:bg-red-500 rounded-full text-white opacity-0 group-hover:opacity-100 transition-all shadow-md z-30"
                                     >
-                                        <div className="w-10 h-10 rounded-full bg-slate-700 shrink-0 overflow-hidden border border-slate-500">
-                                            {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover" /> : <User size={20} className="text-slate-400 m-2" />}
-                                        </div>
-                                        <div className="ml-2 flex flex-col min-w-0">
-                                            <span className="text-xs font-bold text-white truncate">{char.name}</span>
-                                            <span className="text-[9px] text-slate-400 truncate">{char.raw_info || '...'}</span>
-                                        </div>
+                                        <X size={10} />
+                                    </button>
+                                </div>
+                            </foreignObject>
+                        );
+                    })}
+                </g>
+            </svg>
 
-                                        {/* Delete Button */}
-                                        <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity z-50">
-                                            <button 
-                                                onClick={(e) => { e.stopPropagation(); onRemoveActiveChar(char.id); }} 
-                                                className="p-1.5 bg-slate-900/90 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 border border-slate-700/50 shadow-sm backdrop-blur-sm transition-colors"
-                                                title="从当前视图移除"
-                                            >
-                                                <UserMinus size={14} />
-                                            </button>
-                                        </div>
-
-                                        {/* Drop Zones */}
-                                        {/* Parent (Top) */}
-                                        <div className={`absolute -top-6 left-0 right-0 h-6 flex justify-center items-center transition-opacity ${dropTarget?.id === id && dropTarget.zone === 'parent' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                             onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'parent'}); }}
-                                             onDrop={e => handleDropOnPerson(e, id, 'parent')}>
-                                            <div className="bg-indigo-600 text-white text-[8px] px-2 py-0.5 rounded-full flex items-center gap-1 shadow"><ArrowDown size={8}/> 父母</div>
-                                        </div>
-                                        {/* Child (Bottom) */}
-                                        <div className={`absolute -bottom-6 left-0 right-0 h-6 flex justify-center items-center transition-opacity ${dropTarget?.id === id && dropTarget.zone === 'child_single' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                             onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'child_single'}); }}
-                                             onDrop={e => handleDropOnPerson(e, id, 'child_single')}>
-                                            <div className="bg-blue-600 text-white text-[8px] px-2 py-0.5 rounded-full flex items-center gap-1 shadow"><ArrowUp size={8}/> 子女</div>
-                                        </div>
-                                        {/* Spouse (Sides) */}
-                                        <div className={`absolute top-0 bottom-0 -right-8 w-8 flex justify-center items-center transition-opacity ${dropTarget?.id === id && dropTarget.zone === 'spouse' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                             onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'spouse'}); }}
-                                             onDrop={e => handleDropOnPerson(e, id, 'spouse')}>
-                                            <div className="bg-pink-600 text-white p-1 rounded-full shadow"><Heart size={10}/></div>
-                                        </div>
-                                        <div className={`absolute top-0 bottom-0 -left-8 w-8 flex justify-center items-center transition-opacity ${dropTarget?.id === id && dropTarget.zone === 'spouse' ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                                             onDragOver={e => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'spouse'}); }}
-                                             onDrop={e => handleDropOnPerson(e, id, 'spouse')}>
-                                            <div className="bg-pink-600 text-white p-1 rounded-full shadow"><Heart size={10}/></div>
-                                        </div>
-                                    </div>
-                                </foreignObject>
-                            );
-                        })}
-                    </g>
-                </svg>
+            <div className="absolute bottom-6 right-6 flex gap-2">
+                 <button onClick={() => setIsAddingVirtual(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl shadow-lg font-bold text-xs transition-all">
+                    <UserRoundPlus size={14} /> 添加虚拟人物
+                 </button>
+                 <button onClick={() => setIsGuideOpen(!isGuideOpen)} className="p-2 bg-slate-800 border border-slate-700 text-slate-400 hover:text-white rounded-xl shadow-lg">
+                    <HelpCircle size={18} />
+                 </button>
             </div>
-
-            {/* Modals & Dialogs */}
-            {isGuideOpen && (
-                <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95">
-                        <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-700">
-                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                                <HelpCircle size={18} className="text-indigo-400" /> 操作指南
-                            </h3>
-                            <button onClick={() => setIsGuideOpen(false)} className="text-slate-400 hover:text-white transition-colors">
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="space-y-4 text-xs text-slate-300">
-                            <div className="flex gap-3">
-                                <div className="p-2 bg-slate-900 rounded-lg h-fit border border-slate-700">
-                                    <MousePointer2 size={16} className="text-blue-400" />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-white mb-1">拖拽交互</h4>
-                                    <p className="opacity-70 leading-relaxed">从左侧人物列表长按并拖拽角色头像进入画布。已在画布上的角色也可再次拖拽用于建立关系。</p>
-                                </div>
-                            </div>
-                            
-                            <div className="flex gap-3">
-                                <div className="p-2 bg-slate-900 rounded-lg h-fit border border-slate-700">
-                                    <GitBranch size={16} className="text-pink-400" />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-white mb-1">建立亲属关系</h4>
-                                    <p className="opacity-70 leading-relaxed mb-2">将角色拖拽至已有卡片的特定区域：</p>
-                                    <div className="grid grid-cols-2 gap-2 text-[10px]">
-                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-pink-500"></span> 侧边：添加配偶
-                                        </div>
-                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-indigo-500"></span> 顶部：添加父母
-                                        </div>
-                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
-                                            <span className="w-2 h-2 rounded-full bg-blue-500"></span> 底部：添加子女
-                                        </div>
-                                        <div className="bg-slate-900 px-2 py-1.5 rounded border border-slate-700 flex items-center gap-2">
-                                            <Heart size={8} className="text-pink-400" /> 连线中心：共同子女
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-3">
-                                <div className="p-2 bg-slate-900 rounded-lg h-fit border border-slate-700">
-                                    <Edit3 size={16} className="text-amber-400" />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-white mb-1">管理与编辑</h4>
-                                    <p className="opacity-70 leading-relaxed">
-                                        • 点击婚姻连线上的 <Heart size={10} className="inline text-pink-400"/> 图标可修改关系名称（如：前妻、情夫）。<br/>
-                                        • 使用右上角 <UserRoundPlus size={10} className="inline text-indigo-400"/> 创建虚拟节点（如：未知父亲）。
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="mt-6 pt-4 border-t border-slate-700">
-                            <button onClick={() => setIsGuideOpen(false)} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-lg transition-all">
-                                我知道了
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {isAddingVirtual && (
-                <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
-                        <h3 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <UserRoundPlus size={18} className="text-indigo-400" /> 创建虚拟节点
-                        </h3>
+                <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+                    <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl w-80 animate-in zoom-in-95">
+                        <h3 className="text-sm font-bold text-white mb-4">添加虚拟占位人物 (如: 未知生父)</h3>
                         <input 
-                            autoFocus value={virtualName} onChange={e => setVirtualName(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleConfirmVirtual()}
-                            placeholder="如：未知父亲" 
-                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+                            autoFocus
+                            value={virtualName}
+                            onChange={(e) => setVirtualName(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleConfirmVirtual()}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2 text-white text-sm mb-4 outline-none focus:ring-1 focus:ring-indigo-500"
+                            placeholder="输入名称..."
                         />
                         <div className="flex gap-2">
-                            <button onClick={() => setIsAddingVirtual(false)} className="flex-1 py-3 text-xs text-slate-400 font-bold border border-slate-700 rounded-xl">取消</button>
-                            <button onClick={handleConfirmVirtual} className="flex-1 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg">确认创建</button>
+                            <button onClick={() => setIsAddingVirtual(false)} className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-slate-700 rounded-lg">取消</button>
+                            <button onClick={handleConfirmVirtual} className="flex-1 py-2 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-500">确认</button>
                         </div>
                     </div>
                 </div>
             )}
-
-            {editingLink && (
-                <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                    <div className="bg-slate-800 border border-slate-700 rounded-3xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
-                        <h3 className="text-sm font-black text-white uppercase tracking-widest mb-4 flex items-center gap-2">
-                            <Edit3 size={18} className="text-blue-400" /> 自定义关系名称
-                        </h3>
-                        <input 
-                            autoFocus value={tempLinkLabel} onChange={e => setTempLinkLabel(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleUpdateLinkLabel()}
-                            placeholder="如：盟友、仇敌、情人..." 
-                            className="w-full bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500 mb-4"
-                        />
-                        <div className="flex gap-2">
-                            <button onClick={() => setEditingLink(null)} className="flex-1 py-3 text-xs text-slate-400 font-bold border border-slate-700 rounded-xl">取消</button>
-                            <button onClick={handleUpdateLinkLabel} className="flex-1 py-3 bg-blue-600 text-white rounded-xl text-xs font-black shadow-lg">确认修改</button>
-                        </div>
-                        <button onClick={() => { onRemoveFamilyLink(editingLink.id); setEditingLink(null); }} className="w-full mt-2 py-3 bg-red-900/20 text-red-400 border border-red-900/50 rounded-xl text-[10px] font-black uppercase hover:bg-red-900/40 transition-all">删除此关系</button>
+            
+            {isGuideOpen && (
+                <div className="absolute top-20 right-6 w-64 bg-slate-800/90 backdrop-blur border border-slate-700 p-4 rounded-xl shadow-2xl text-xs text-slate-300 z-40 animate-in slide-in-from-right-4">
+                    <div className="flex justify-between items-center mb-2">
+                        <strong className="text-white">操作指南</strong>
+                        <button onClick={() => setIsGuideOpen(false)}><X size={14}/></button>
                     </div>
+                    <ul className="space-y-2 list-disc pl-4">
+                        <li>从左侧侧边栏拖拽人物进入画布。</li>
+                        <li>拖拽人物A到人物B的<span className="text-pink-400">右边缘</span>建立婚姻关系。</li>
+                        <li>拖拽人物A到人物B的<span className="text-blue-400">下边缘</span>建立单亲子女关系。</li>
+                        <li>拖拽人物A到<span className="text-pink-400">婚姻连线中间</span>建立共同子女关系。</li>
+                    </ul>
                 </div>
             )}
-        </>
+        </div>
     );
 
-    if (isPoppedOut) {
-        return (
-            <>
-                <div ref={containerRef} className="h-full min-h-[650px] bg-slate-900/10 border border-dashed border-slate-700 rounded-3xl flex flex-col items-center justify-center text-slate-500 animate-pulse">
-                    <ExternalLink size={48} className="mb-4 opacity-50" />
-                    <h3 className="font-bold text-lg text-slate-400">谱系图已在新窗口打开</h3>
-                    <p className="text-xs mt-2">请在弹出窗口中进行编辑操作</p>
-                    <button onClick={() => setIsPoppedOut(false)} className="mt-6 px-6 py-2 bg-slate-800 hover:bg-slate-700 rounded-xl text-xs font-bold text-white border border-slate-600 transition-all">
-                        恢复到主窗口
-                    </button>
-                </div>
-                <PortalWindow onClose={() => setIsPoppedOut(false)}>
-                    <div className="flex h-full w-full bg-slate-900">
-                        {/* Sidebar in Popout */}
-                        <div className="w-72 bg-slate-800/50 border-r border-slate-700 flex flex-col">
-                            <div className="p-4 border-b border-slate-700 bg-slate-900/50">
-                                <h3 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-2 mb-3">
-                                    <User size={14} className="text-blue-400"/> 登场人物列表
-                                </h3>
-                                <input 
-                                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-blue-500"
-                                    placeholder="搜索人物..."
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                />
-                            </div>
-                            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
-                                {characters
-                                    .filter(c => !c.isVirtual && (searchTerm === "" || c.name.includes(searchTerm)))
-                                    .map(char => {
-                                    const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
-                                    const isActive = activeCharIds.includes(char.id);
-                                    return (
-                                        <div 
-                                            key={char.id}
-                                            draggable={!isActive}
-                                            onDragStart={(e) => {
-                                                if (isActive) return;
-                                                e.dataTransfer.setData("application/react-dnd-char-id", char.id);
-                                            }}
-                                            className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all ${isActive ? 'bg-slate-900/50 border-slate-800 opacity-50 grayscale cursor-default' : 'bg-slate-800 border-slate-700 hover:border-blue-500 hover:bg-slate-700 cursor-grab active:cursor-grabbing hover:shadow-md'}`}
-                                        >
-                                            <div className="w-8 h-8 rounded-full bg-slate-900 border border-slate-600 flex items-center justify-center overflow-hidden shrink-0">
-                                                {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover" /> : <User size={14} className="text-slate-500" />}
-                                            </div>
-                                            <div className="flex flex-col min-w-0">
-                                                <span className="text-xs font-bold text-slate-200 truncate">{char.name}</span>
-                                                <span className="text-[9px] text-slate-500 truncate">{char.raw_info || char.note || "无描述"}</span>
-                                            </div>
-                                            {isActive && <div className="ml-auto"><div className="w-2 h-2 bg-green-500 rounded-full" /></div>}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                        {/* Graph in Popout */}
-                        <div 
-                            className="flex-1 relative overflow-hidden bg-slate-900" 
-                            onDragOver={e => e.preventDefault()}
-                            onDrop={e => {
-                                e.preventDefault();
-                                const ids = (e.dataTransfer.getData("application/mysterymind-ids") ? JSON.parse(e.dataTransfer.getData("application/mysterymind-ids")) : [e.dataTransfer.getData("application/react-dnd-char-id")]);
-                                ids.forEach((id:string) => id && onAddActiveChar(id));
-                            }}
-                        >
-                            {renderContent()}
-                        </div>
-                    </div>
-                </PortalWindow>
-            </>
-        );
-    }
-
-    return (
-        <div 
-            ref={containerRef}
-            className="relative flex flex-col transition-all overflow-hidden border border-slate-800 rounded-3xl h-full min-h-[650px] bg-slate-900/20"
-            onDragOver={e => e.preventDefault()}
-            onDrop={e => {
-                e.preventDefault();
-                const ids = (e.dataTransfer.getData("application/mysterymind-ids") ? JSON.parse(e.dataTransfer.getData("application/mysterymind-ids")) : [e.dataTransfer.getData("application/react-dnd-char-id")]);
-                ids.forEach((id:string) => id && onAddActiveChar(id));
-            }}
-        >
-            {renderContent()}
+    return isPoppedOut ? (
+        <PortalWindow onClose={() => setIsPoppedOut(false)}>
+             <div className="w-full h-full flex flex-col">
+                 <div className="h-14 bg-slate-900 border-b border-slate-800 flex items-center px-4 justify-between shrink-0">
+                     <span className="font-bold text-white flex items-center gap-2"><GitBranch size={16}/> 家族谱系图 (全屏模式)</span>
+                     <button onClick={() => setIsPoppedOut(false)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white"><Minimize size={18}/></button>
+                 </div>
+                 <div className="flex-1 overflow-hidden relative">
+                    {renderContent()}
+                 </div>
+             </div>
+        </PortalWindow>
+    ) : (
+        <div className="w-full h-[600px] border border-slate-700 rounded-xl overflow-hidden relative shadow-xl flex flex-col">
+             {renderContent()}
+             <button onClick={() => setIsPoppedOut(true)} className="absolute top-4 right-4 z-20 p-2 bg-slate-800/80 backdrop-blur border border-slate-600 rounded-lg text-slate-300 hover:text-white shadow-lg"><Maximize size={16}/></button>
         </div>
     );
 };
