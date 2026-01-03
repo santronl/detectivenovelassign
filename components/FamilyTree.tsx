@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
-import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair } from 'lucide-react';
+import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair, ArrowDown, ArrowUp } from 'lucide-react';
 import PortalWindow from './PortalWindow';
 
 interface Props {
@@ -353,7 +352,7 @@ const FamilyTree: React.FC<Props> = ({
         const svg = d3.select(svgRef.current);
         const zoomBehavior = d3.zoom<SVGSVGElement, any>()
             .scaleExtent([0.1, 5])
-            .on("zoom", (event: d3.D3ZoomEvent<SVGSVGElement, any>) => {
+            .on("zoom", (event: any) => {
                 setTransform({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
             });
         svg.call(zoomBehavior);
@@ -404,7 +403,7 @@ const FamilyTree: React.FC<Props> = ({
     };
 
     const renderLinks = () => {
-        const links: JSX.Element[] = [];
+        const links: React.ReactElement[] = [];
         const { nodePositions } = layoutData;
 
         // 婚姻连线
@@ -578,17 +577,69 @@ const FamilyTree: React.FC<Props> = ({
             )}
             
             {isGuideOpen && (
-                <div className="absolute top-20 right-6 w-64 bg-slate-800/90 backdrop-blur border border-slate-700 p-4 rounded-xl shadow-2xl text-xs text-slate-300 z-40 animate-in slide-in-from-right-4">
-                    <div className="flex justify-between items-center mb-2">
-                        <strong className="text-white">操作指南</strong>
-                        <button onClick={() => setIsGuideOpen(false)}><X size={14}/></button>
+                <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                        <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-700">
+                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                                <HelpCircle size={18} className="text-indigo-400" /> 谱系图操作指南
+                            </h3>
+                            <button onClick={() => setIsGuideOpen(false)} className="text-slate-400 hover:text-white transition-colors">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        
+                        <div className="space-y-6 text-xs text-slate-300">
+                            {/* Section 1 */}
+                            <div className="flex gap-4">
+                                <div className="p-3 bg-slate-900 rounded-xl h-fit border border-slate-700 shrink-0">
+                                    <GitBranch size={20} className="text-pink-400" />
+                                </div>
+                                <div className="space-y-3">
+                                    <h4 className="font-bold text-white text-sm">如何建立亲属关系?</h4>
+                                    <p className="opacity-70 leading-relaxed">
+                                        直接拖拽人物头像到目标卡片的<strong className="text-white">特定感应区</strong>：
+                                    </p>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
+                                            <div className="w-6 h-6 bg-pink-500/20 rounded flex items-center justify-center text-pink-400"><Heart size={12}/></div>
+                                            <span>左右侧边: <span className="text-pink-400 font-bold">配偶</span></span>
+                                        </div>
+                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
+                                            <div className="w-6 h-6 bg-indigo-500/20 rounded flex items-center justify-center text-indigo-400"><ArrowDown size={12}/></div>
+                                            <span>顶部区域: <span className="text-indigo-400 font-bold">父母</span></span>
+                                        </div>
+                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
+                                            <div className="w-6 h-6 bg-blue-500/20 rounded flex items-center justify-center text-blue-400"><ArrowUp size={12}/></div>
+                                            <span>底部区域: <span className="text-blue-400 font-bold">子女(单亲)</span></span>
+                                        </div>
+                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
+                                            <div className="w-6 h-6 bg-white/10 rounded flex items-center justify-center text-white"><Heart size={10}/></div>
+                                            <span>连线中心: <span className="text-white font-bold">共同子女</span></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 2 */}
+                            <div className="flex gap-4 border-t border-slate-700 pt-4">
+                                <div className="p-3 bg-slate-900 rounded-xl h-fit border border-slate-700 shrink-0">
+                                    <UserRoundPlus size={20} className="text-indigo-400" />
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-white text-sm mb-1">缺失关键人物?</h4>
+                                    <p className="opacity-70 leading-relaxed mb-2">
+                                        使用右下角的 <span className="text-indigo-400 font-bold">添加虚拟人物</span> 功能创建占位符（如：未知生父、初代家主），以完善家族树结构。
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-6 pt-4 border-t border-slate-700">
+                            <button onClick={() => setIsGuideOpen(false)} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-lg transition-all active:scale-95">
+                                我明白了
+                            </button>
+                        </div>
                     </div>
-                    <ul className="space-y-2 list-disc pl-4">
-                        <li>从左侧侧边栏拖拽人物进入画布。</li>
-                        <li>拖拽人物A到人物B的<span className="text-pink-400">右边缘</span>建立婚姻关系。</li>
-                        <li>拖拽人物A到人物B的<span className="text-blue-400">下边缘</span>建立单亲子女关系。</li>
-                        <li>拖拽人物A到<span className="text-pink-400">婚姻连线中间</span>建立共同子女关系。</li>
-                    </ul>
                 </div>
             )}
         </div>
