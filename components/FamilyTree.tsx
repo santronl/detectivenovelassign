@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
-import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair, ArrowDown, ArrowUp } from 'lucide-react';
+import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair, ArrowDown, ArrowUp, Check, Search } from 'lucide-react';
 import PortalWindow from './PortalWindow';
 
 interface Props {
@@ -21,17 +22,25 @@ interface Props {
 
 const CARD_WIDTH = 160;
 const CARD_HEIGHT = 80;
-const SPOUSE_GAP = 120; // 基础夫妻间隙
-const SIBLING_GAP = 40; // 兄弟姐妹之间的间隙
-const COUSIN_GAP = 80; // 堂表亲（不同家庭）之间的间隙
-const VERTICAL_SPACING = 200; // 代际高度
+const SPOUSE_GAP = 120;
+const SIBLING_GAP = 40;
+const COUSIN_GAP = 80;
+const VERTICAL_SPACING = 200;
+
+// Define NodePos at module level to ensure type visibility
+type NodePos = { x: number, y: number, gen: number };
 
 const FamilyTree: React.FC<Props> = ({ 
     characters, activeCharIds, familyLinks, customOrder, blobUrls,
     onAddFamilyLink, onUpdateFamilyLink, onRemoveFamilyLink, onAddActiveChar, onRemoveActiveChar,
     onAddVirtualChar, onUpdateCustomOrder
 }) => {
-    const svgRef = useRef<SVGSVGElement>(null);
+    // Use a callback ref for SVG to ensure d3 is initialized whenever the DOM node is created (e.g., inside Portal)
+    const [svgNode, setSvgNode] = useState<SVGSVGElement | null>(null);
+    const svgRefCallback = useCallback((node: SVGSVGElement | null) => {
+        setSvgNode(node);
+    }, []);
+
     const containerRef = useRef<HTMLDivElement>(null);
     const [transform, setTransform] = useState({ x: 0, y: 0, k: 0.8 });
     const [isPoppedOut, setIsPoppedOut] = useState(false);
@@ -40,9 +49,8 @@ const FamilyTree: React.FC<Props> = ({
     const [isAddingVirtual, setIsAddingVirtual] = useState(false);
     const [isGuideOpen, setIsGuideOpen] = useState(false);
     const [virtualName, setVirtualName] = useState("");
-    const [editingLink, setEditingLink] = useState<FamilyLink | null>(null);
-    const [tempLinkLabel, setTempLinkLabel] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
+    const [sidebarSearch, setSidebarSearch] = useState("");
 
     const visibleCharacters = useMemo(() => {
         const activeSet = new Set(activeCharIds);
@@ -62,9 +70,8 @@ const FamilyTree: React.FC<Props> = ({
         });
     }, [visibleCharacters, familyLinks]);
 
-    // --- 布局算法 ---
+    // --- Layout Algorithm ---
     const layoutData = useMemo(() => {
-        type NodePos = { x: number, y: number, gen: number };
         const emptyResult = { 
             nodePositions: {} as Record<string, NodePos>, 
             bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 } 
@@ -97,7 +104,6 @@ const FamilyTree: React.FC<Props> = ({
                         return ps.includes(p1) && ps.includes(p2);
                     } else {
                         if (!ps.includes(p1)) return false;
-                        // 确保不是其他配偶的孩子
                         const hasOtherSpouse = ps.some(p => p !== p1 && p1Spouses.includes(p));
                         return !hasOtherSpouse;
                     }
@@ -158,7 +164,6 @@ const FamilyTree: React.FC<Props> = ({
 
             const rootIdx = leftSpouses.length;
 
-            // 间隙计算逻辑 (简化版)
             if (leftSpouses.length > 0) {
                 const spouseId = leftSpouses[leftSpouses.length - 1];
                 const jointChildren = getStrictChildren(rootId, spouseId);
@@ -191,7 +196,6 @@ const FamilyTree: React.FC<Props> = ({
                 }
             }
 
-            // 放置节点
             let currentX = startX;
             nodeSequence.forEach((nodeId, idx) => {
                 nodePositions[nodeId] = { x: currentX, y: gen * VERTICAL_SPACING, gen };
@@ -202,7 +206,6 @@ const FamilyTree: React.FC<Props> = ({
                 }
             });
 
-            // 放置子女
             const placeAndAlignChildren = (children: string[], width: number, targetCenterX: number) => {
                 if (children.length === 0) return;
                 let childStartX = targetCenterX - width / 2;
@@ -221,7 +224,6 @@ const FamilyTree: React.FC<Props> = ({
                 }
             };
 
-            // 处理左侧配偶子女
             if (leftSpouses.length > 0) {
                 const spouseId = leftSpouses[leftSpouses.length - 1];
                 const pSpouse = nodePositions[spouseId];
@@ -238,7 +240,6 @@ const FamilyTree: React.FC<Props> = ({
                 }
             }
 
-            // 处理右侧配偶子女
             if (rightSpouses.length > 0) {
                 const spouseId = rightSpouses[0];
                 const pRoot = nodePositions[rootId];
@@ -255,7 +256,6 @@ const FamilyTree: React.FC<Props> = ({
                 }
             }
 
-            // 处理Root单亲子女
             if (rootSingleChildren.length > 0) {
                 const pRoot = nodePositions[rootId];
                 const rootCenter = pRoot.x + CARD_WIDTH / 2;
@@ -294,7 +294,6 @@ const FamilyTree: React.FC<Props> = ({
             if (!placedNodes.has(root.id)) {
                 const mySpouses = getSpouses(root.id);
                 if (mySpouses.some(s => placedNodes.has(s))) return;
-                
                 const width = layoutSubtree(root.id, 0, currentMaxX);
                 currentMaxX += width + COUSIN_GAP; 
             }
@@ -313,15 +312,22 @@ const FamilyTree: React.FC<Props> = ({
         return { nodePositions, bounds: { minX, maxX, minY, maxY } };
     }, [visibleCharacters, visibleLinks, customOrder]);
 
-    // 视图自适应
+    // --- View Handling ---
+    
+    // Fit to view
     const fitToView = useCallback((animate = true) => {
-        if (!svgRef.current || (!containerRef.current && !isPoppedOut)) return;
+        if (!svgNode) return;
         const { minX, maxX, minY, maxY } = layoutData.bounds;
         const graphWidth = maxX - minX;
         const graphHeight = maxY - minY;
         
+        // Determine container size. In popped out mode, we might not have containerRef readily available or it might be stale.
+        // We can fallback to window dimensions for full screen mode if containerRef is null
         let containerWidth = containerRef.current?.clientWidth || window.innerWidth;
         let containerHeight = containerRef.current?.clientHeight || window.innerHeight;
+        
+        // If embedded and container ref is missing (rare), skip
+        if (!isPoppedOut && !containerRef.current) return;
 
         if (graphWidth === 0 || graphHeight === 0) return;
         
@@ -331,33 +337,43 @@ const FamilyTree: React.FC<Props> = ({
         const k = Math.min(scaleX, scaleY, 1); 
         
         const centerX = (minX + maxX) / 2;
-        const centerY = minY + 100; // 偏上一点
+        const centerY = minY + 100;
         
         const tx = containerWidth / 2 - centerX * k;
-        const ty = 100 - minY * k; // 顶部留白
+        const ty = 100 - minY * k;
 
-        const svg = d3.select(svgRef.current);
+        const svg = d3.select(svgNode);
+        // We need to apply this transform to the zoom behavior attached to the SVG
         const zoomBehavior = d3.zoom<SVGSVGElement, any>().scaleExtent([0.1, 5]);
-        const transform = d3.zoomIdentity.translate(tx, ty).scale(k);
+        const newTransform = d3.zoomIdentity.translate(tx, ty).scale(k);
         
         if (animate) {
-            svg.transition().duration(750).call(zoomBehavior.transform as any, transform);
+            svg.transition().duration(750).call(zoomBehavior.transform as any, newTransform);
         } else {
-            svg.call(zoomBehavior.transform as any, transform);
+            svg.call(zoomBehavior.transform as any, newTransform);
         }
-    }, [layoutData, isPoppedOut]);
+        // State update happens via the 'zoom' event listener which is triggered by .call above
+    }, [layoutData, isPoppedOut, svgNode]);
 
+    // Initialize D3 Zoom
     useEffect(() => {
-        if (!svgRef.current) return;
-        const svg = d3.select(svgRef.current);
+        if (!svgNode) return;
+        const svg = d3.select(svgNode);
         const zoomBehavior = d3.zoom<SVGSVGElement, any>()
             .scaleExtent([0.1, 5])
             .on("zoom", (event: any) => {
                 setTransform({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
             });
+        
         svg.call(zoomBehavior);
-    }, []);
+        
+        // Important: Restore previous transform state to the new DOM node (e.g. when moving to Portal)
+        // This ensures panning continues smoothly and zoom state isn't lost/reset to identity unexpectedly
+        svg.call(zoomBehavior.transform as any, d3.zoomIdentity.translate(transform.x, transform.y).scale(transform.k));
+        
+    }, [svgNode]); // Re-run when the SVG node changes (mount/unmount)
 
+    // Auto-fit on data change
     useEffect(() => {
         const timer = setTimeout(() => fitToView(true), 100);
         return () => clearTimeout(timer);
@@ -485,7 +501,7 @@ const FamilyTree: React.FC<Props> = ({
                 </div>
             </div>
             
-            <svg ref={svgRef} className="w-full h-full cursor-grab active:cursor-grabbing">
+            <svg ref={svgRefCallback} className="w-full h-full cursor-grab active:cursor-grabbing">
                 <g transform={`translate(${transform.x},${transform.y}) scale(${transform.k})`}>
                     {renderLinks()}
                     {Object.entries(layoutData.nodePositions).map(([id, pos]) => {
@@ -556,6 +572,7 @@ const FamilyTree: React.FC<Props> = ({
                  </button>
             </div>
 
+            {/* Virtual Char Modal */}
             {isAddingVirtual && (
                 <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
                     <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl w-80 animate-in zoom-in-95">
@@ -576,6 +593,7 @@ const FamilyTree: React.FC<Props> = ({
                 </div>
             )}
             
+            {/* Guide Modal */}
             {isGuideOpen && (
                 <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
                     <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
@@ -645,15 +663,60 @@ const FamilyTree: React.FC<Props> = ({
         </div>
     );
 
+    const renderSidebar = () => (
+        <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
+            <div className="p-3 border-b border-slate-800">
+                <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
+                    <input 
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-500"
+                        placeholder="搜索候选人物..."
+                        value={sidebarSearch}
+                        onChange={e => setSidebarSearch(e.target.value)}
+                    />
+                </div>
+            </div>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
+                {characters
+                    .filter(c => !c.isVirtual && (sidebarSearch === "" || c.name.toLowerCase().includes(sidebarSearch.toLowerCase())))
+                    .map(char => {
+                        const isActive = activeCharIds.includes(char.id);
+                        const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
+                        return (
+                            <div 
+                                key={char.id}
+                                draggable={!isActive}
+                                onDragStart={(e) => {
+                                    if (isActive) return;
+                                    e.dataTransfer.setData("application/react-dnd-char-id", char.id);
+                                }}
+                                className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all ${isActive ? 'bg-slate-800/50 border-slate-800 opacity-50 grayscale cursor-default' : 'bg-slate-800 border-slate-700 hover:border-blue-500 cursor-grab active:cursor-grabbing'}`}
+                            >
+                                <div className="w-8 h-8 rounded-full bg-slate-950 overflow-hidden shrink-0 border border-slate-600 shadow-sm">
+                                    {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover"/> : <User size={16} className="text-slate-500 m-1.5"/>}
+                                </div>
+                                <span className="text-xs font-bold text-slate-300 truncate flex-1">{char.name}</span>
+                                {isActive && <Check size={14} className="text-blue-500"/>}
+                            </div>
+                        )
+                    })
+                }
+            </div>
+        </div>
+    );
+
     return isPoppedOut ? (
         <PortalWindow onClose={() => setIsPoppedOut(false)}>
-             <div className="w-full h-full flex flex-col">
+             <div className="w-full h-full flex flex-col bg-[#0f172a]">
                  <div className="h-14 bg-slate-900 border-b border-slate-800 flex items-center px-4 justify-between shrink-0">
                      <span className="font-bold text-white flex items-center gap-2"><GitBranch size={16}/> 家族谱系图 (全屏模式)</span>
                      <button onClick={() => setIsPoppedOut(false)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white"><Minimize size={18}/></button>
                  </div>
-                 <div className="flex-1 overflow-hidden relative">
-                    {renderContent()}
+                 <div className="flex-1 flex overflow-hidden">
+                    {renderSidebar()}
+                    <div className="flex-1 overflow-hidden relative">
+                        {renderContent()}
+                    </div>
                  </div>
              </div>
         </PortalWindow>
