@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
-import { User, Heart, ArrowDown, ArrowUp, Maximize, Minimize, GitBranch, X, UserMinus, MousePointer2, UserRoundPlus, ChevronLeft, ChevronRight, Hash, GripHorizontal, Crosshair, Link2, Edit3, HelpCircle, MousePointer, MoveHorizontal, Search, ExternalLink } from 'lucide-react';
+import { User, Heart, ArrowDown, ArrowUp, Maximize, Minimize, GitBranch, X, UserMinus, MousePointer2, UserRoundPlus, Hash, GripHorizontal, Crosshair, Link2, Edit3, HelpCircle, ExternalLink } from 'lucide-react';
 import PortalWindow from './PortalWindow';
 
 interface Props {
@@ -65,9 +65,15 @@ const FamilyTree: React.FC<Props> = ({
     // --- 新的布局算法 (Fixed Asymmetric Gap Calculation) ---
 
     const layoutData = useMemo(() => {
-        if (visibleCharacters.length === 0) return { nodePositions: {}, links: [], bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 } };
+        type NodePos = { x: number, y: number, gen: number };
+        const emptyResult = { 
+            nodePositions: {} as Record<string, NodePos>, 
+            bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 } 
+        };
 
-        const nodePositions: Record<string, { x: number, y: number, gen: number }> = {};
+        if (visibleCharacters.length === 0) return emptyResult;
+
+        const nodePositions: Record<string, NodePos> = {};
         const placedNodes = new Set<string>();
         let currentMaxX = 0;
 
@@ -331,7 +337,7 @@ const FamilyTree: React.FC<Props> = ({
             maxY = Math.max(maxY, pos.y + CARD_HEIGHT);
         });
 
-        if (minX === Infinity) return { nodePositions: {}, links: [], bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 } };
+        if (minX === Infinity) return emptyResult;
 
         return { nodePositions, bounds: { minX, maxX, minY, maxY } };
     }, [visibleCharacters, visibleLinks, customOrder]);
@@ -377,7 +383,7 @@ const FamilyTree: React.FC<Props> = ({
         const svg = d3.select(svgRef.current);
         const zoomBehavior = d3.zoom<SVGSVGElement, any>()
             .scaleExtent([0.1, 5])
-            .on("zoom", (event: any) => {
+            .on("zoom", (event: d3.D3ZoomEvent<SVGSVGElement, any>) => {
                 setTransform({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
             });
         svg.call(zoomBehavior);
