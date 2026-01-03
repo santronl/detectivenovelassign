@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
@@ -42,7 +41,7 @@ const FamilyTree: React.FC<Props> = ({
     }, []);
 
     const containerRef = useRef<HTMLDivElement>(null);
-    const [transform, setTransform] = useState({ x: 0, y: 0, k: 0.8 });
+    const [transform, setTransform] = useState<{x: number, y: number, k: number}>({ x: 0, y: 0, k: 0.8 });
     const [isPoppedOut, setIsPoppedOut] = useState(false);
     const [dropTarget, setDropTarget] = useState<{ id: string, zone: 'parent' | 'spouse' | 'child_single' | 'marriage_joint' | 'other_relation' } | null>(null);
     const [hoveredCharId, setHoveredCharId] = useState<string | null>(null);
@@ -362,14 +361,16 @@ const FamilyTree: React.FC<Props> = ({
         const zoomBehavior = d3.zoom<SVGSVGElement, any>()
             .scaleExtent([0.1, 5])
             .on("zoom", (event: any) => {
-                setTransform({ x: event.transform.x, y: event.transform.y, k: event.transform.k });
+                const t = event.transform || { x: 0, y: 0, k: 1 };
+                setTransform({ x: t.x, y: t.y, k: t.k });
             });
         
         svg.call(zoomBehavior);
         
         // Important: Restore previous transform state to the new DOM node (e.g. when moving to Portal)
         // This ensures panning continues smoothly and zoom state isn't lost/reset to identity unexpectedly
-        svg.call(zoomBehavior.transform as any, d3.zoomIdentity.translate(transform.x, transform.y).scale(transform.k));
+        const t = transform as { x: number, y: number, k: number };
+        svg.call(zoomBehavior.transform as any, d3.zoomIdentity.translate(t.x, t.y).scale(t.k));
         
     }, [svgNode]); // Re-run when the SVG node changes (mount/unmount)
 

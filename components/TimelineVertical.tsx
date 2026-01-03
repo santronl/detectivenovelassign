@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
 import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users } from 'lucide-react';
@@ -55,17 +54,27 @@ const TimelineVertical: React.FC<Props> = ({
   const [newPeriodLabel, setNewPeriodLabel] = useState("");
   const [showGuide, setShowGuide] = useState(false);
 
+  // Filter out virtual characters for display logic
+  const validCharacters = characters.filter(c => !c.isVirtual);
+
   const sortedIds = [
     ...charOrder.filter(id => activeCharIds.includes(id)),
     ...activeCharIds.filter(id => !charOrder.includes(id))
   ];
   
-  const activeCharacters = sortedIds.map(id => characters.find(c => c.id === id)).filter(Boolean) as Character[];
+  const activeCharacters = sortedIds
+    .map(id => characters.find(c => c.id === id))
+    .filter((c): c is Character => !!c && !c.isVirtual); // Ensure virtual characters don't appear in columns
 
   const handleOpenAdd = (charId?: string, slotIdx?: number) => {
+    // Determine default character ID ensuring it's not virtual
+    const defaultCharId = activeCharacters.length > 0 
+        ? activeCharacters[0].id 
+        : (validCharacters[0]?.id || '');
+
     setEditingSeg({
       id: crypto.randomUUID(),
-      characterId: charId || activeCharIds[0] || (characters[0]?.id || ''),
+      characterId: charId || defaultCharId,
       startSlot: slotIdx ?? 0,
       endSlot: (slotIdx ?? 0) + 1,
       locationName: '',
@@ -147,7 +156,7 @@ const TimelineVertical: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             <UserPlus size={16} className="text-slate-400" />
             <div className="flex flex-wrap gap-1 max-w-xl">
-              {characters.map(c => (
+              {validCharacters.map(c => (
                 <button
                   key={c.id}
                   onClick={() => {
@@ -381,7 +390,7 @@ const TimelineVertical: React.FC<Props> = ({
                   value={editingSeg.characterId}
                   onChange={(e) => setEditingSeg({ ...editingSeg, characterId: e.target.value })}
                 >
-                  {characters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  {validCharacters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
               </div>
 
