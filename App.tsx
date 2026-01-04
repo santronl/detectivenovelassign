@@ -1,9 +1,8 @@
 
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
-import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Clue, CharacterGroup, Alibi, Location, TimelineSegment, TimePeriodLabel, FamilyLink } from './types';
+import { AppState, INITIAL_STATE, Character, Space, Relationship, RelationshipDef, MapDoc, TimePoint, CharacterPlacement, ItemPlacement, Clue, CharacterGroup, Alibi, Location, TimelineSegment, TimePeriodLabel, FamilyLink, SaveSlot } from './types';
 import RelationshipGraph from './components/RelationshipGraph';
 import EvidenceBoard from './components/EvidenceBoard';
 import AlibiMatrix from './components/AlibiMatrix';
@@ -58,7 +57,9 @@ import {
   UserRoundPlus,
   Palette,
   Type,
-  Ungroup
+  Ungroup,
+  History,
+  RotateCcw
 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -96,6 +97,10 @@ const App: React.FC = () => {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupColor, setNewGroupColor] = useState("#3b82f6");
   const [pendingGroupMemberIds, setPendingGroupMemberIds] = useState<string[]>([]);
+
+  // Stage Manager State
+  const [isStageManagerOpen, setIsStageManagerOpen] = useState(false);
+  const [newStageName, setNewStageName] = useState("");
 
   // Sorting State
   const [draggedSidebarItem, setDraggedSidebarItem] = useState<{ id: string, type: 'char' | 'group', groupId?: string } | null>(null);
@@ -455,6 +460,54 @@ const App: React.FC = () => {
           characters: [newChar, ...(prev.characters || [])]
       }));
       setEditingCharacter(newChar);
+  };
+
+  // --- Stage/Save Slot Logic ---
+  const handleSaveStage = () => {
+      if (!newStageName.trim()) return;
+      
+      const { saveSlots, ...dataToSave } = state;
+      const newSlot: SaveSlot = {
+          id: crypto.randomUUID(),
+          name: newStageName.trim(),
+          timestamp: Date.now(),
+          data: dataToSave
+      };
+
+      setState(prev => ({
+          ...prev,
+          saveSlots: [newSlot, ...(prev.saveSlots || [])]
+      }));
+      
+      setNewStageName("");
+      setStatusMessage(`已保存阶段: ${newSlot.name}`);
+  };
+
+  const handleLoadStage = (slot: SaveSlot) => {
+      // Keep current saveSlots, overwrite everything else with slot data
+      setState(prev => ({
+          ...INITIAL_STATE, // Ensure no undefined fields
+          ...slot.data,
+          saveSlots: prev.saveSlots
+      }));
+      // Need to refresh Blob URLs because IDs might have changed (though usually images persist in IndexedDB independently)
+      // Actually, image IDs are just strings. The IndexedDB has all images. So refreshing URLs for the *loaded* IDs is enough.
+      // We can trigger a refresh via effect or manually calling it.
+      // Since `state` changes, `refreshBlobUrls` needs to run. 
+      // The existing effect logic calls refreshBlobUrls when loading from DB, but not state update.
+      // Let's manually trigger it.
+      const tempStateForBlob = { ...slot.data, saveSlots: [] } as AppState;
+      refreshBlobUrls(tempStateForBlob);
+      
+      setStatusMessage(`已回溯至阶段: ${slot.name}`);
+      setIsStageManagerOpen(false);
+  };
+
+  const handleDeleteStage = (slotId: string) => {
+      setState(prev => ({
+          ...prev,
+          saveSlots: (prev.saveSlots || []).filter(s => s.id !== slotId)
+      }));
   };
 
   // --- Character Reordering Logic ---
@@ -864,6 +917,8 @@ const App: React.FC = () => {
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
+              <button onClick={() => setIsStageManagerOpen(true)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-white group"><History size={18} /> <span className="text-sm font-medium">阅读阶段</span></button>
+              <div className="w-[1px] h-6 bg-slate-700 mx-1"></div>
               <div className={`hidden sm:flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold border transition-colors ${fileHandle ? 'bg-green-900/20 text-green-400 border-green-500/30 shadow-[0_0_10px_rgba(34,197,94,0.1)]' : 'bg-slate-800 text-slate-500 border-slate-700'}`}>{fileHandle ? <Link2 size={12}/> : <Link2Off size={12}/>} {fileHandle ? '已关联本地文件' : isIframe ? '沙盒受限' : '未关联文件'}</div>
               <button onClick={() => setShowClearConfirm(true)} className="flex items-center gap-2 p-2 text-slate-400 hover:text-red-400 group transition-colors"><FilePlus size={18} /><span className="text-sm font-medium">新建档案</span></button>
               <div className="w-[1px] h-6 bg-slate-700 mx-2"></div>
@@ -1210,6 +1265,80 @@ const App: React.FC = () => {
                 <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex gap-3">
                     <button onClick={() => setIsCreateGroupModalOpen(false)} className="flex-1 py-2.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-700 rounded-xl transition-colors">取消</button>
                     <button onClick={handleConfirmCreateGroup} disabled={!newGroupName.trim()} className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg transition-all">确认创建</button>
+                </div>
+            </div>
+        </div>
+      )}
+
+      {/* Stage Manager Modal */}
+      {isStageManagerOpen && (
+        <div className="fixed inset-0 z-[1300] flex items-center justify-center bg-black/70 backdrop-blur-md p-4 animate-in fade-in duration-200">
+            <div className="bg-slate-800 border border-slate-700 rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 flex flex-col max-h-[85vh]">
+                <div className="p-6 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center shrink-0">
+                    <h3 className="text-lg font-bold text-white flex items-center gap-3">
+                        <div className="p-2 bg-blue-600 rounded-xl"><History size={20} className="text-white"/></div>
+                        阅读阶段存档
+                    </h3>
+                    <button onClick={() => setIsStageManagerOpen(false)} className="text-slate-400 hover:text-white"><X size={24}/></button>
+                </div>
+                
+                <div className="p-6 space-y-6 flex-1 overflow-y-auto custom-scrollbar">
+                    <div className="space-y-3">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><Save size={12}/> 保存当前阶段</label>
+                        <div className="flex gap-2">
+                            <input 
+                                autoFocus
+                                value={newStageName}
+                                onChange={(e) => setNewStageName(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSaveStage()}
+                                placeholder="如: 第一章结束 / 发现尸体..."
+                                className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-blue-500 transition-all font-bold"
+                            />
+                            <button 
+                                onClick={handleSaveStage} 
+                                disabled={!newStageName.trim()}
+                                className="px-6 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:grayscale text-white rounded-xl font-bold text-sm shadow-lg transition-all active:scale-95"
+                            >
+                                存档
+                            </button>
+                        </div>
+                        <p className="text-[10px] text-slate-500 italic pl-1">记录此时此刻的推理状态，以便后续回溯。照片等资源将共享。</p>
+                    </div>
+
+                    <div className="border-t border-slate-700/50 pt-4 space-y-3">
+                        <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><RotateCcw size={12}/> 历史阶段回溯</label>
+                        {(state.saveSlots || []).length === 0 ? (
+                            <div className="text-center py-10 border-2 border-dashed border-slate-700 rounded-xl bg-slate-800/50 text-slate-600">
+                                <History size={32} className="mx-auto mb-2 opacity-50"/>
+                                <p className="text-xs font-bold">暂无存档记录</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-2">
+                                {(state.saveSlots || []).map(slot => (
+                                    <div key={slot.id} className="flex items-center justify-between p-3 bg-slate-700/30 border border-slate-700 rounded-xl hover:bg-slate-700/50 transition-all group">
+                                        <div className="flex flex-col min-w-0 pr-4">
+                                            <span className="text-sm font-bold text-slate-200 truncate">{slot.name}</span>
+                                            <span className="text-[10px] text-slate-500 font-mono mt-0.5">{new Date(slot.timestamp).toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <button 
+                                                onClick={() => handleLoadStage(slot)}
+                                                className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white border border-blue-500/50 rounded-lg text-xs font-bold transition-all"
+                                            >
+                                                读取
+                                            </button>
+                                            <button 
+                                                onClick={() => handleDeleteStage(slot.id)}
+                                                className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
+                                            >
+                                                <Trash2 size={14}/>
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

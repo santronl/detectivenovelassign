@@ -1,5 +1,4 @@
 
-
 export interface Character {
   id: string;
   name: string;
@@ -142,6 +141,13 @@ export interface ItemPlacement {
 export type TimelineData = Record<string, CharacterPlacement[]>;
 export type ItemTimelineData = Record<string, ItemPlacement[]>;
 
+export interface SaveSlot {
+  id: string;
+  name: string;
+  timestamp: number;
+  data: Omit<AppState, 'saveSlots' | 'fileHandle'>; // 避免递归存储 saveSlots
+}
+
 export interface AppState {
   characters: Character[];
   graphPeopleRelationships: Relationship[];
@@ -181,6 +187,8 @@ export interface AppState {
 
   graphSubTab: 'people' | 'items';
   lastFileName: string | null;
+  
+  saveSlots: SaveSlot[]; // 多阶段存档列表
 }
 
 export const INITIAL_STATE: AppState = {
@@ -228,5 +236,7 @@ export const INITIAL_STATE: AppState = {
   itemGraphLayout: {},
   
   graphSubTab: 'people',
-  lastFileName: null
+  lastFileName: null,
+  
+  saveSlots: []
 };
