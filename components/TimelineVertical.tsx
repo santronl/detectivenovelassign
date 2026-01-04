@@ -1,7 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users, Edit3 } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users, Edit3, CheckCircle2, Circle, MousePointerClick, HelpCircle, ArrowRight, LayoutGrid, MousePointer2 } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -51,12 +51,20 @@ const TimelineVertical: React.FC<Props> = ({
   const [editingSeg, setEditingSeg] = useState<Partial<TimelineSegment> | null>(null);
   const [draggedCharIndex, setDraggedCharIndex] = useState<number | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
+  const [selectionRange, setSelectionRange] = useState<{start: number, end: number} | null>(null);
+  const [showSelectionMenu, setShowSelectionMenu] = useState(false);
+  const [selectedMultiChars, setSelectedMultiChars] = useState<string[]>([]);
+
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
   const [newPeriodLabel, setNewPeriodLabel] = useState("");
   const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+
+  const topScrollRef = useRef<HTMLDivElement>(null);
+  const mainScrollRef = useRef<HTMLDivElement>(null);
 
   // Filter out virtual characters for display logic
   const validCharacters = characters.filter(c => !c.isVirtual);
@@ -70,15 +78,15 @@ const TimelineVertical: React.FC<Props> = ({
     .map(id => characters.find(c => c.id === id))
     .filter((c): c is Character => !!c && !c.isVirtual); // Ensure virtual characters don't appear in columns
 
+  const totalContentWidth = LEFT_SECTION_WIDTH + activeCharacters.length * CHAR_COLUMN_WIDTH;
+
   const handleOpenAdd = (charId?: string, slotIdx?: number) => {
     // Determine default character ID ensuring it's not virtual
-    const defaultCharId = activeCharacters.length > 0 
-        ? activeCharacters[0].id 
-        : (validCharacters[0]?.id || '');
+    const defaultCharId = charId || (activeCharacters.length > 0 ? activeCharacters[0].id : (validCharacters[0]?.id || ''));
 
     setEditingSeg({
       id: crypto.randomUUID(),
-      characterId: charId || defaultCharId,
+      characterId: defaultCharId,
       startSlot: slotIdx ?? 0,
       endSlot: (slotIdx ?? 0) + 1,
       locationName: '',
@@ -86,15 +94,30 @@ const TimelineVertical: React.FC<Props> = ({
       relatedTimePointId: '',
       color: COLORS[Math.floor(Math.random() * COLORS.length)]
     });
+    setSelectedMultiChars([defaultCharId]);
     setIsModalOpen(true);
   };
 
   const handleSaveSegment = () => {
-    if (editingSeg && editingSeg.characterId && editingSeg.locationName) {
-      if (segments.some(s => s.id === editingSeg.id)) {
+    if (editingSeg && editingSeg.locationName) {
+      const isEditing = segments.some(s => s.id === editingSeg.id);
+      
+      if (isEditing) {
+          // Editing existing: Single update
           onUpdateSegment(editingSeg as TimelineSegment);
       } else {
-          onAddSegment(editingSeg as TimelineSegment);
+          // Creating new: Support multiple characters
+          const targets = selectedMultiChars.length > 0 ? selectedMultiChars : [editingSeg.characterId!];
+          
+          targets.forEach(cId => {
+              const newSeg = {
+                  ...editingSeg,
+                  id: crypto.randomUUID(),
+                  characterId: cId
+              } as TimelineSegment;
+              onAddSegment(newSeg);
+          });
+
           if (editingSeg.timeLabel) {
             const hasExisting = periods.some(p => p.startSlot === editingSeg.startSlot && p.endSlot === editingSeg.endSlot);
             if (!hasExisting) {
@@ -110,6 +133,7 @@ const TimelineVertical: React.FC<Props> = ({
       }
       setIsModalOpen(false);
       setEditingSeg(null);
+      setSelectedMultiChars([]);
     }
   };
 
@@ -149,15 +173,40 @@ const TimelineVertical: React.FC<Props> = ({
   const handleSlotClick = (i: number) => {
     if (selectionStart === null) {
       setSelectionStart(i);
+      setSelectionRange(null); // Clear previous range
     } else {
       const start = Math.min(selectionStart, i);
       const end = Math.max(selectionStart, i) + 1;
       setSelectionStart(null);
+      setSelectionRange({ start, end });
+      setShowSelectionMenu(true);
       setShowGuide(false);
-      setEditingPeriodId(null);
-      setNewPeriodLabel("");
-      setEditingSeg({ startSlot: start, endSlot: end } as any);
-      setIsPeriodModalOpen(true);
+    }
+  };
+
+  const toggleMultiChar = (id: string) => {
+      setSelectedMultiChars(prev => {
+          if (prev.includes(id)) {
+              if (prev.length === 1) return prev; // Prevent deselecting last one
+              return prev.filter(x => x !== id);
+          }
+          return [...prev, id];
+      });
+  };
+
+  const handleTopScroll = () => {
+    if (mainScrollRef.current && topScrollRef.current) {
+        if (Math.abs(mainScrollRef.current.scrollLeft - topScrollRef.current.scrollLeft) > 2) {
+            mainScrollRef.current.scrollLeft = topScrollRef.current.scrollLeft;
+        }
+    }
+  };
+
+  const handleMainScroll = () => {
+    if (topScrollRef.current && mainScrollRef.current) {
+        if (Math.abs(topScrollRef.current.scrollLeft - mainScrollRef.current.scrollLeft) > 2) {
+            topScrollRef.current.scrollLeft = mainScrollRef.current.scrollLeft;
+        }
     }
   };
 
@@ -220,6 +269,13 @@ const TimelineVertical: React.FC<Props> = ({
                 <Plus size={18} /> 活动实录
             </button>
             <button 
+                onClick={() => setIsHelpOpen(true)}
+                className="p-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-xl border border-slate-600 shadow-xl transition-all"
+                title="操作说明"
+            >
+                <HelpCircle size={20} />
+            </button>
+            <button 
                 onClick={() => setIsExpanded(!isExpanded)}
                 className="p-2.5 bg-slate-700 hover:bg-slate-600 text-slate-300 hover:text-white rounded-xl border border-slate-600 shadow-xl transition-all"
             >
@@ -241,7 +297,21 @@ const TimelineVertical: React.FC<Props> = ({
         </div>
       )}
 
-      <div className="flex-1 bg-slate-950 border border-slate-800 rounded-2xl overflow-auto custom-scrollbar relative mt-4">
+      {/* Top Scrollbar */}
+      <div 
+        ref={topScrollRef}
+        onScroll={handleTopScroll}
+        className="overflow-x-auto custom-scrollbar shrink-0 mt-4 rounded-t-xl border-x border-t border-slate-800 bg-slate-950/30"
+        style={{ height: '14px' }}
+      >
+        <div style={{ width: `${totalContentWidth}px`, height: '1px' }}></div>
+      </div>
+
+      <div 
+        ref={mainScrollRef}
+        onScroll={handleMainScroll}
+        className="flex-1 bg-slate-950 border border-slate-800 rounded-b-2xl overflow-auto custom-scrollbar relative"
+      >
         <div className="min-w-max flex flex-col h-full bg-[#020617]">
           {/* Header Row - Using standard layout, no transfroms */}
           <div className="flex sticky top-0 z-[60] bg-[#0f172a] border-b border-slate-800">
@@ -320,17 +390,19 @@ const TimelineVertical: React.FC<Props> = ({
                     ))}
                 </div>
                 <div className="flex-1 flex flex-col bg-[#020617] relative">
-                    {Array.from({ length: slotCount }).map((_, i) => (
+                    {Array.from({ length: slotCount }).map((_, i) => {
+                        const isSelected = selectionStart === i || (selectionRange && i >= selectionRange.start && i < selectionRange.end);
+                        return (
                         <div 
                             key={i} 
                             style={{ height: `${SLOT_HEIGHT}px` }} 
                             className={`flex flex-col items-center justify-center border-b border-slate-800/30 transition-all hover:bg-slate-800/40 cursor-pointer relative group/slot 
-                                ${selectionStart === i ? 'bg-amber-600/20 ring-1 ring-amber-500/50 shadow-inner' : ''}
+                                ${isSelected ? 'bg-amber-600/20 ring-1 ring-amber-500/50 shadow-inner' : ''}
                                 ${showGuide ? 'hover:ring-1 hover:ring-amber-500/30' : ''}
                             `}
                             onClick={() => handleSlotClick(i)}
                         >
-                            <span className={`text-[10px] font-mono font-black transition-colors ${selectionStart === i ? 'text-amber-400' : 'text-slate-600 group-hover/slot:text-slate-400'}`}>G{i+1}</span>
+                            <span className={`text-[10px] font-mono font-black transition-colors ${isSelected ? 'text-amber-400' : 'text-slate-600 group-hover/slot:text-slate-400'}`}>G{i+1}</span>
                             <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover/slot:opacity-100 transition-all z-[80]">
                                 <button 
                                     onClick={(e) => { e.stopPropagation(); onInsertSlot(i); }}
@@ -348,7 +420,7 @@ const TimelineVertical: React.FC<Props> = ({
                                 </button>
                             </div>
                         </div>
-                    ))}
+                    )})}
                 </div>
             </div>
 
@@ -383,7 +455,12 @@ const TimelineVertical: React.FC<Props> = ({
                           backgroundColor: `${seg.color}20`,
                           borderColor: seg.color
                         }}
-                        onClick={(e) => { e.stopPropagation(); setEditingSeg(seg); setIsModalOpen(true); }}
+                        onClick={(e) => { 
+                            e.stopPropagation(); 
+                            setEditingSeg(seg); 
+                            setSelectedMultiChars([seg.characterId]);
+                            setIsModalOpen(true); 
+                        }}
                         className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-3 overflow-hidden flex flex-col justify-center border border-slate-700/50 backdrop-blur-sm cursor-pointer"
                       >
                         <div className="flex items-start justify-between">
@@ -414,24 +491,136 @@ const TimelineVertical: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* Selection Menu Modal */}
+      {showSelectionMenu && selectionRange && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => { setShowSelectionMenu(false); setSelectionRange(null); }}>
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-lg font-black text-white mb-4 uppercase tracking-widest text-center">
+                      已选择区间 G{selectionRange.start + 1} - G{selectionRange.end}
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                      <button 
+                          onClick={() => {
+                              setShowSelectionMenu(false);
+                              setEditingPeriodId(null);
+                              setNewPeriodLabel("");
+                              setEditingSeg({ startSlot: selectionRange.start, endSlot: selectionRange.end } as any);
+                              setIsPeriodModalOpen(true);
+                          }}
+                          className="flex flex-col items-center justify-center gap-3 p-4 bg-slate-700 hover:bg-slate-600 rounded-xl border border-slate-600 transition-all group"
+                      >
+                          <div className="p-3 bg-amber-500/20 text-amber-400 rounded-full group-hover:scale-110 transition-transform"><Calendar size={24}/></div>
+                          <span className="text-xs font-bold text-slate-200">添加时间段备注</span>
+                      </button>
+                      <button 
+                          onClick={() => {
+                              setShowSelectionMenu(false);
+                              setEditingSeg({
+                                  id: crypto.randomUUID(),
+                                  characterId: activeCharacters[0]?.id || characters[0]?.id, 
+                                  startSlot: selectionRange.start,
+                                  endSlot: selectionRange.end,
+                                  locationName: '',
+                                  timeLabel: '',
+                                  color: COLORS[Math.floor(Math.random() * COLORS.length)]
+                              });
+                              setSelectedMultiChars([activeCharacters[0]?.id || characters[0]?.id]);
+                              setIsModalOpen(true);
+                          }}
+                          className="flex flex-col items-center justify-center gap-3 p-4 bg-blue-600 hover:bg-blue-500 rounded-xl shadow-lg shadow-blue-900/20 transition-all group"
+                      >
+                          <div className="p-3 bg-white/20 text-white rounded-full group-hover:scale-110 transition-transform"><MousePointerClick size={24}/></div>
+                          <span className="text-xs font-bold text-white">添加活动实录</span>
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {isHelpOpen && (
+        <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setIsHelpOpen(false)}>
+            <div className="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                <div className="p-5 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
+                    <h3 className="font-bold text-white flex items-center gap-2"><HelpCircle size={20} className="text-blue-400"/> 时间序列操作指南</h3>
+                    <button onClick={() => setIsHelpOpen(false)} className="text-slate-400 hover:text-white"><X size={20}/></button>
+                </div>
+                <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar text-sm text-slate-300 leading-relaxed">
+                    <div className="space-y-3">
+                        <h4 className="text-xs font-black text-amber-400 uppercase tracking-widest flex items-center gap-2"><MousePointer2 size={14}/> 快捷区间操作 (推荐)</h4>
+                        <div className="bg-slate-900/50 rounded-xl p-4 border border-slate-700/50 space-y-2">
+                            <p className="flex gap-2"><span className="text-amber-500 font-bold">1. 选定范围:</span> 点击左侧轴标 (例如 G1) 作为起点，再次点击另一个轴标 (例如 G5) 作为终点。</p>
+                            <p className="flex gap-2"><span className="text-amber-500 font-bold">2. 批量活动:</span> 在弹出的菜单中选择“添加活动实录”，并在弹窗中勾选多名角色，即可快速生成多人同地活动。</p>
+                            <p className="flex gap-2"><span className="text-amber-500 font-bold">3. 时间备注:</span> 选择区间后点击“添加时间段备注”，可在左侧生成全局的时间提示（如“案发前夕”）。</p>
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        <h4 className="text-xs font-black text-blue-400 uppercase tracking-widest flex items-center gap-2"><MousePointerClick size={14}/> 基础交互</h4>
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-slate-900/30 p-3 rounded-lg border border-slate-700/30">
+                                <span className="block text-white font-bold mb-1">创建单人活动</span>
+                                双击对应人物列的空白处，直接在该位置创建活动记录。
+                            </div>
+                            <div className="bg-slate-900/30 p-3 rounded-lg border border-slate-700/30">
+                                <span className="block text-white font-bold mb-1">编辑/删除</span>
+                                点击已存在的活动卡片进行修改；卡片右上角悬停可快速删除。
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="space-y-3">
+                        <h4 className="text-xs font-black text-emerald-400 uppercase tracking-widest flex items-center gap-2"><LayoutGrid size={14}/> 视图管理</h4>
+                        <ul className="space-y-2 list-disc pl-4 text-slate-400">
+                            <li><span className="text-white">调整排序:</span> 拖拽顶部的人物表头，可调整人物列的左右顺序。</li>
+                            <li><span className="text-white">增删格子:</span> 悬停在左侧轴标上，使用出现的 <Plus size={10} className="inline"/> 或 <Trash2 size={10} className="inline"/> 图标插入或删除一行。</li>
+                            <li><span className="text-white">调整总长:</span> 使用顶部的“轴格配置”输入框修改总行数。</li>
+                        </ul>
+                    </div>
+                </div>
+                <div className="p-4 border-t border-slate-700 bg-slate-900/30 text-center">
+                    <button onClick={() => setIsHelpOpen(false)} className="px-8 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-bold transition-all">我已了解</button>
+                </div>
+            </div>
+        </div>
+      )}
+
       {isModalOpen && editingSeg && (
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-              <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />{editingSeg.id && segments.some(s => s.id === editingSeg.id) ? '编辑轨迹' : '轨迹实录'}</h3>
+              <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />{segments.some(s => s.id === editingSeg.id) ? '编辑轨迹' : '新增轨迹实录'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={24}/></button>
             </div>
             <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
               
               <div className="space-y-2">
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users size={12}/> 执行角色</label>
-                <select 
-                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500 appearance-none"
-                  value={editingSeg.characterId}
-                  onChange={(e) => setEditingSeg({ ...editingSeg, characterId: e.target.value })}
-                >
-                  {validCharacters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-2"><Users size={12}/> 执行角色 {segments.some(s => s.id === editingSeg.id) ? '(单一)' : '(多选)'}</label>
+                
+                {segments.some(s => s.id === editingSeg.id) ? (
+                    <select 
+                      className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500 appearance-none"
+                      value={editingSeg.characterId}
+                      onChange={(e) => setEditingSeg({ ...editingSeg, characterId: e.target.value })}
+                    >
+                      {validCharacters.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                ) : (
+                    <div className="grid grid-cols-3 gap-2 bg-slate-900/50 p-2 rounded-xl border border-slate-700/50 max-h-32 overflow-y-auto custom-scrollbar">
+                        {activeCharacters.map(c => {
+                            const isSelected = selectedMultiChars.includes(c.id);
+                            return (
+                                <button
+                                    key={c.id}
+                                    onClick={() => toggleMultiChar(c.id)}
+                                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-xs font-bold transition-all ${isSelected ? 'bg-blue-600 border-blue-500 text-white shadow-md' : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                                >
+                                    {isSelected ? <CheckCircle2 size={12} className="shrink-0"/> : <Circle size={12} className="shrink-0"/>}
+                                    <span className="truncate">{c.name}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">
@@ -484,7 +673,9 @@ const TimelineVertical: React.FC<Props> = ({
             </div>
             <div className="p-6 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/30">
               <button onClick={() => setIsModalOpen(false)} className="px-6 py-2.5 text-slate-400 hover:text-white text-sm font-bold transition-colors">取消</button>
-              <button onClick={handleSaveSegment} className="px-12 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-sm font-black shadow-xl transition-all active:scale-95">确认存入</button>
+              <button onClick={handleSaveSegment} className="px-12 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-sm font-black shadow-xl transition-all active:scale-95">
+                  {segments.some(s => s.id === editingSeg.id) ? '保存修改' : `确认存入 (${selectedMultiChars.length})`}
+              </button>
             </div>
           </div>
         </div>
@@ -521,7 +712,7 @@ const TimelineVertical: React.FC<Props> = ({
                   <input autoFocus value={newPeriodLabel} onChange={(e) => setNewPeriodLabel(e.target.value)} placeholder="如: 第一起命案发生前..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-white mb-6 focus:ring-2 focus:ring-amber-500 outline-none shadow-inner" onKeyDown={(e) => e.key === 'Enter' && handleSavePeriod()} />
                   
                   <div className="flex gap-3">
-                      <button onClick={() => { setIsPeriodModalOpen(false); setSelectionStart(null); setEditingPeriodId(null); }} className="flex-1 py-3 text-sm text-slate-400 font-bold border border-slate-700 rounded-xl hover:bg-slate-700 transition-colors">取消</button>
+                      <button onClick={() => { setIsPeriodModalOpen(false); setSelectionStart(null); setEditingPeriodId(null); setSelectionRange(null); }} className="flex-1 py-3 text-sm text-slate-400 font-bold border border-slate-700 rounded-xl hover:bg-slate-700 transition-colors">取消</button>
                       <button onClick={handleSavePeriod} className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-black shadow-lg shadow-amber-900/20 active:scale-95 transition-all">保存</button>
                   </div>
               </div>
