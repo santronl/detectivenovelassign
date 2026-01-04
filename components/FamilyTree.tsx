@@ -235,16 +235,23 @@ const FamilyTree: React.FC<Props> = ({
             return totalWidth;
         };
 
-        const shiftSubtree = (rootId: string, dx: number) => {
+        // blockId: Optional ID to prevent shifting (e.g., the root we are expanding from)
+        const shiftSubtree = (rootId: string, dx: number, blockId?: string) => {
             if (Math.abs(dx) < 0.1) return;
             const queue = [rootId];
             const visited = new Set<string>();
+            if (blockId) visited.add(blockId); // Block the barrier node from moving
+
             while (queue.length > 0) {
                 const curr = queue.shift()!;
                 if (visited.has(curr)) continue;
                 visited.add(curr);
                 if (nodePositions[curr]) nodePositions[curr].x += dx;
+                
+                // Propagate to Spouses
                 getSpouses(curr).forEach(s => { if (!visited.has(s)) queue.push(s); });
+                
+                // Propagate to Children
                 visibleLinks.forEach(l => {
                     if (l.type === 'parent_child' && l.parents?.includes(curr) && l.child) {
                         if (!visited.has(l.child)) queue.push(l.child);
@@ -411,15 +418,61 @@ const FamilyTree: React.FC<Props> = ({
                 const spouseId = leftSpouses[leftSpouses.length - 1];
                 const pSpouse = nodePositions[spouseId];
                 const pRoot = nodePositions[rootId];
+                
                 const jointData = jointLayouts[`${spouseId}-${rootId}`];
+                let jointBounds: { l: number, r: number } | null = null;
+                
                 if (jointData) {
                     const jointCenter = (pSpouse.x + pRoot.x + CARD_WIDTH) / 2;
-                    placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
+                    jointBounds = placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
+
+                    // --- Collision Detection for Left Spouses ---
+                    // Overlap between: Joint Children (Left) vs Root Single Children (Right)
+                    if (jointBounds && rootSingleBounds) {
+                        const dist = rootSingleBounds.l - jointBounds.r;
+                        if (dist < SIBLING_GAP) {
+                            const overlap = SIBLING_GAP - dist;
+                            // Shift Spouse (and joint children) to the Left to make space
+                            shiftSubtree(spouseId, -overlap * 2, rootId);
+                            // Correct children back right
+                            jointData.children.forEach(child => shiftSubtree(child, overlap));
+
+                            jointBounds.l -= overlap;
+                            jointBounds.r -= overlap;
+                            statsL = Math.min(statsL, jointBounds.l);
+                        }
+                    }
                 }
                 const singleData = spouseSingleLayouts[spouseId];
+                let singleBounds: { l: number, r: number } | null = null;
                 if (singleData) {
-                    const spouseCenter = pSpouse.x + CARD_WIDTH / 2;
-                    placeAndAlignChildren(singleData.children, singleData.width, spouseCenter);
+                    const currentSpouseX = nodePositions[spouseId].x; // Might have shifted
+                    const spouseCenter = currentSpouseX + CARD_WIDTH / 2;
+                    singleBounds = placeAndAlignChildren(singleData.children, singleData.width, spouseCenter);
+                }
+
+                // Check collision: SpouseSingle (Left) vs Joint (Right)
+                if (singleBounds && jointBounds) {
+                     const dist = jointBounds.l - singleBounds.r;
+                     if (dist < SIBLING_GAP) {
+                         const overlap = SIBLING_GAP - dist;
+                         // Shift Spouse left by 2*overlap
+                         shiftSubtree(spouseId, -overlap * 2, rootId);
+                         // Correct Joint children back right by overlap
+                         if (jointData) jointData.children.forEach(child => shiftSubtree(child, overlap));
+                         
+                         // Update bounds
+                         singleBounds.l -= overlap * 2;
+                         singleBounds.r -= overlap * 2;
+                         jointBounds.l -= overlap; // Moved -2O then +O = -O
+                         jointBounds.r -= overlap;
+                         
+                         statsL = Math.min(statsL, singleBounds.l);
+                     }
+                }
+                if (singleBounds) {
+                    statsL = Math.min(statsL, singleBounds.l);
+                    statsR = Math.max(statsR, singleBounds.r);
                 }
             }
 
@@ -435,46 +488,52 @@ const FamilyTree: React.FC<Props> = ({
                     const jointCenter = (pRoot.x + pSpouse.x + CARD_WIDTH) / 2;
                     jointBounds = placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
 
-                    // --- Advanced Collision Detection ---
-                    // If A has single children (E) and A-B have joint children (C),
-                    // E sits under A. C sits between A and B.
-                    // If C's subtree is wide (e.g. C has a spouse), it might overlap E.
+                    // --- Collision Detection for Right Spouses ---
+                    // Overlap between: Root Single Children (Left) vs Joint Children (Right)
                     if (rootSingleBounds && jointBounds) {
-                        const dist = jointBounds.l - rootSingleBounds.r;
-                        if (dist < SIBLING_GAP) {
-                            const overlap = SIBLING_GAP - dist;
-                            // Push spouse B to the right to make space for the joint center
-                            // Moving center by X requires moving B by 2X relative to A
-                            const shiftAmount = overlap * 2;
-                            
-                            shiftSubtree(spouseId, shiftAmount);
-                            
-                            // Update overall statsR because B moved right
-                            statsR += shiftAmount;
+                        const overlap = (rootSingleBounds.r + SIBLING_GAP) - jointBounds.l;
+                        if (overlap > 0) {
+                            const shiftB = overlap * 2;
+                            shiftSubtree(spouseId, shiftB, rootId);
+                            // Correct joint children back left
+                            jointData.children.forEach(child => shiftSubtree(child, -overlap));
 
-                            // Correct joint children. 
-                            // B moved +2*overlap. Joint children moved +2*overlap (as subtree of B).
-                            // Center moved +overlap.
-                            // We want visual pos = OldPos + overlap.
-                            // Current pos = OldPos + 2*overlap.
-                            // Adjustment needed = -overlap.
-                            jointData.children.forEach(child => {
-                                shiftSubtree(child, -overlap);
-                            });
-
-                            // Update local bounds for correct return stats
                             jointBounds.l += overlap;
                             jointBounds.r += overlap;
+                            statsR = Math.max(statsR, jointBounds.r);
                         }
                     }
                 }
 
                 const singleData = spouseSingleLayouts[spouseId];
+                let singleBounds: { l: number, r: number } | null = null;
                 if (singleData) {
-                    // Need fresh position as spouse might have shifted
                     const currentSpouseX = nodePositions[spouseId].x;
                     const spouseCenter = currentSpouseX + CARD_WIDTH / 2;
-                    placeAndAlignChildren(singleData.children, singleData.width, spouseCenter);
+                    singleBounds = placeAndAlignChildren(singleData.children, singleData.width, spouseCenter);
+                }
+
+                // Check collision: Joint (Left) vs SpouseSingle (Right)
+                if (jointBounds && singleBounds) {
+                    const overlap = (jointBounds.r + SIBLING_GAP) - singleBounds.l;
+                    if (overlap > 0) {
+                        const shiftB = overlap * 2;
+                        shiftSubtree(spouseId, shiftB, rootId);
+                        // Correct joint children back left
+                        if (jointData) jointData.children.forEach(child => shiftSubtree(child, -overlap));
+                        
+                        // Update bounds
+                        singleBounds.l += overlap * 2;
+                        singleBounds.r += overlap * 2;
+                        jointBounds.l += overlap;
+                        jointBounds.r += overlap;
+                        
+                        statsR = Math.max(statsR, singleBounds.r);
+                    }
+                }
+                if (singleBounds) {
+                    statsL = Math.min(statsL, singleBounds.l);
+                    statsR = Math.max(statsR, singleBounds.r);
                 }
             }
 
