@@ -1,5 +1,4 @@
 
-
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
@@ -130,6 +129,87 @@ const FamilyTree: React.FC<Props> = ({
         return `children_${sortedP1.join('_')}`;
     }, [getParents]);
 
+    // Lifted from layoutData to be accessible for bias calculation
+    const getStrictChildren = useCallback((p1: string, p2: string | null): string[] => {
+        const p1Spouses = getSpouses(p1);
+        const rawChildren = visibleLinks
+            .filter(l => {
+                if (l.type !== 'parent_child' || !l.child) return false;
+                const ps = l.parents || [];
+                if (p2) {
+                    return ps.includes(p1) && ps.includes(p2);
+                } else {
+                    if (!ps.includes(p1)) return false;
+                    const hasOtherSpouse = ps.some(p => p !== p1 && p1Spouses.includes(p));
+                    return !hasOtherSpouse;
+                }
+            })
+            .map(l => l.child!);
+        
+        const uniqueChildren = Array.from(new Set<string>(rawChildren));
+        
+        const parentKey = p2 
+            ? `children_${[p1, p2].sort().join('_')}` 
+            : `children_${p1}`;
+        
+        const order = customOrder[parentKey];
+        if (order && order.length > 0) {
+            uniqueChildren.sort((a, b) => {
+                const idxA = order.indexOf(a);
+                const idxB = order.indexOf(b);
+                if (idxA === -1 && idxB === -1) return a.localeCompare(b);
+                if (idxA === -1) return 1;
+                if (idxB === -1) return -1;
+                return idxA - idxB;
+            });
+        } else {
+            uniqueChildren.sort((a, b) => a.localeCompare(b));
+        }
+        
+        return uniqueChildren;
+    }, [visibleLinks, getSpouses, customOrder]);
+
+    /**
+     * Determines layout bias (Flip or Default) for spouses based on adjacent siblings.
+     * Default (Right-first): Index 0 -> Right, Index 1 -> Left
+     * Flip (Left-first): Index 0 -> Left, Index 1 -> Right
+     */
+    const getSpouseLayoutBias = useCallback((charId: string): 'default' | 'flip' => {
+        const parents = getParents(charId);
+        let siblings: string[] = [];
+        
+        if (parents.length === 0) {
+            // Check Root Order
+            const hasParents = new Set<string>();
+            visibleLinks.forEach(l => { if (l.type === 'parent_child' && l.child) hasParents.add(l.child); });
+            const roots = visibleCharacters.filter(c => !hasParents.has(c.id));
+            
+            const rootOrder = customOrder['roots'];
+            if (rootOrder) {
+                siblings = roots.map(r => r.id).sort((a,b) => {
+                    const idxA = rootOrder.indexOf(a);
+                    const idxB = rootOrder.indexOf(b);
+                    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                    if (idxA !== -1) return -1;
+                    if (idxB !== -1) return 1;
+                    return 0;
+                });
+            } else {
+                siblings = roots.map(r => r.id).sort();
+            }
+        } else {
+            const p1 = parents[0];
+            const p2 = parents.length > 1 ? parents[1] : null;
+            siblings = getStrictChildren(p1, p2);
+        }
+        
+        // If I am the FIRST sibling (Left-most), my siblings are to my Right.
+        // Therefore, I should prefer placing spouses to my LEFT (away from siblings).
+        if (siblings.length > 0 && siblings[0] === charId) return 'flip';
+        
+        return 'default';
+    }, [getParents, visibleLinks, visibleCharacters, customOrder, getStrictChildren]);
+
     // --- Layout Algorithm ---
     const layoutData = useMemo((): { nodePositions: Record<string, NodePos>, bounds: { minX: number, maxX: number, minY: number, maxY: number } } => {
         const emptyResult = { 
@@ -142,45 +222,6 @@ const FamilyTree: React.FC<Props> = ({
         const nodePositions: Record<string, NodePos> = {};
         const placedNodes = new Set<string>();
         let currentMaxX = 0;
-
-        const getStrictChildren = (p1: string, p2: string | null): string[] => {
-            const p1Spouses = getSpouses(p1);
-            const rawChildren = visibleLinks
-                .filter(l => {
-                    if (l.type !== 'parent_child' || !l.child) return false;
-                    const ps = l.parents || [];
-                    if (p2) {
-                        return ps.includes(p1) && ps.includes(p2);
-                    } else {
-                        if (!ps.includes(p1)) return false;
-                        const hasOtherSpouse = ps.some(p => p !== p1 && p1Spouses.includes(p));
-                        return !hasOtherSpouse;
-                    }
-                })
-                .map(l => l.child!);
-            
-            const uniqueChildren = Array.from(new Set<string>(rawChildren));
-            
-            const parentKey = p2 
-                ? `children_${[p1, p2].sort().join('_')}` 
-                : `children_${p1}`;
-            
-            const order = customOrder[parentKey];
-            if (order && order.length > 0) {
-                uniqueChildren.sort((a, b) => {
-                    const idxA = order.indexOf(a);
-                    const idxB = order.indexOf(b);
-                    if (idxA === -1 && idxB === -1) return a.localeCompare(b);
-                    if (idxA === -1) return 1;
-                    if (idxB === -1) return -1;
-                    return idxA - idxB;
-                });
-            } else {
-                uniqueChildren.sort((a, b) => a.localeCompare(b));
-            }
-            
-            return uniqueChildren;
-        };
 
         const calculateChildrenBlockWidth = (children: string[]): number => {
             if (children.length === 0) return 0;
@@ -219,14 +260,25 @@ const FamilyTree: React.FC<Props> = ({
             const leftSpouses: string[] = [];
             const rightSpouses: string[] = [];
             
-            // Logic: Even indices go right, Odd indices go left.
-            // Index 0 -> Right (Primary)
-            // Index 1 -> Left (Secondary)
-            // Index 2 -> Right...
+            // Apply Placement Bias
+            const bias = getSpouseLayoutBias(rootId);
+            
             allSpouses.forEach((sId, idx) => {
-                if (idx % 2 !== 0) leftSpouses.push(sId);
-                else rightSpouses.push(sId);
+                const isEven = idx % 2 === 0;
+                let goRight = true;
+
+                if (bias === 'default') {
+                     // Default: Even -> Right, Odd -> Left
+                     goRight = isEven;
+                } else {
+                     // Flip: Even -> Left, Odd -> Right
+                     goRight = !isEven;
+                }
+
+                if (goRight) rightSpouses.push(sId);
+                else leftSpouses.push(sId);
             });
+            
             leftSpouses.reverse(); 
 
             const nodeSequence = [...leftSpouses, rootId, ...rightSpouses];
@@ -286,8 +338,8 @@ const FamilyTree: React.FC<Props> = ({
             let statsR = currentX;
             const rootRowWidth = statsR - statsL;
 
-            const placeAndAlignChildren = (children: string[], width: number, targetCenterX: number) => {
-                if (children.length === 0) return;
+            const placeAndAlignChildren = (children: string[], width: number, targetCenterX: number): { l: number, r: number } | null => {
+                if (children.length === 0) return null;
                 let childStartX = targetCenterX - width / 2;
                 
                 // 1. Initial Layout & Stats Collection
@@ -330,12 +382,30 @@ const FamilyTree: React.FC<Props> = ({
                     }
                 }
 
-                // Update parent's bounds based on children bounds
+                // Collect bounds for this specific group
+                let groupL = Infinity;
+                let groupR = -Infinity;
+
                 childStats.forEach(item => {
+                    // Track for return
+                    groupL = Math.min(groupL, item.stats.lBound);
+                    groupR = Math.max(groupR, item.stats.rBound);
+
+                    // Update parent's overall bounds
                     statsL = Math.min(statsL, item.stats.lBound);
                     statsR = Math.max(statsR, item.stats.rBound);
                 });
+
+                return { l: groupL, r: groupR };
             };
+
+            // 1. Place Root's Single Children (To establish baseline bounds)
+            let rootSingleBounds: { l: number, r: number } | null = null;
+            if (rootSingleChildren.length > 0) {
+                const pRoot = nodePositions[rootId];
+                const rootCenter = pRoot.x + CARD_WIDTH / 2;
+                rootSingleBounds = placeAndAlignChildren(rootSingleChildren, rootSingleWidth, rootCenter);
+            }
 
             if (leftSpouses.length > 0) {
                 const spouseId = leftSpouses[leftSpouses.length - 1];
@@ -357,22 +427,55 @@ const FamilyTree: React.FC<Props> = ({
                 const spouseId = rightSpouses[0];
                 const pRoot = nodePositions[rootId];
                 const pSpouse = nodePositions[spouseId];
+                
                 const jointData = jointLayouts[`${rootId}-${spouseId}`];
+                let jointBounds: { l: number, r: number } | null = null;
+
                 if (jointData) {
                     const jointCenter = (pRoot.x + pSpouse.x + CARD_WIDTH) / 2;
-                    placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
+                    jointBounds = placeAndAlignChildren(jointData.children, jointData.width, jointCenter);
+
+                    // --- Advanced Collision Detection ---
+                    // If A has single children (E) and A-B have joint children (C),
+                    // E sits under A. C sits between A and B.
+                    // If C's subtree is wide (e.g. C has a spouse), it might overlap E.
+                    if (rootSingleBounds && jointBounds) {
+                        const dist = jointBounds.l - rootSingleBounds.r;
+                        if (dist < SIBLING_GAP) {
+                            const overlap = SIBLING_GAP - dist;
+                            // Push spouse B to the right to make space for the joint center
+                            // Moving center by X requires moving B by 2X relative to A
+                            const shiftAmount = overlap * 2;
+                            
+                            shiftSubtree(spouseId, shiftAmount);
+                            
+                            // Update overall statsR because B moved right
+                            statsR += shiftAmount;
+
+                            // Correct joint children. 
+                            // B moved +2*overlap. Joint children moved +2*overlap (as subtree of B).
+                            // Center moved +overlap.
+                            // We want visual pos = OldPos + overlap.
+                            // Current pos = OldPos + 2*overlap.
+                            // Adjustment needed = -overlap.
+                            jointData.children.forEach(child => {
+                                shiftSubtree(child, -overlap);
+                            });
+
+                            // Update local bounds for correct return stats
+                            jointBounds.l += overlap;
+                            jointBounds.r += overlap;
+                        }
+                    }
                 }
+
                 const singleData = spouseSingleLayouts[spouseId];
                 if (singleData) {
-                    const spouseCenter = pSpouse.x + CARD_WIDTH / 2;
+                    // Need fresh position as spouse might have shifted
+                    const currentSpouseX = nodePositions[spouseId].x;
+                    const spouseCenter = currentSpouseX + CARD_WIDTH / 2;
                     placeAndAlignChildren(singleData.children, singleData.width, spouseCenter);
                 }
-            }
-
-            if (rootSingleChildren.length > 0) {
-                const pRoot = nodePositions[rootId];
-                const rootCenter = pRoot.x + CARD_WIDTH / 2;
-                placeAndAlignChildren(rootSingleChildren, rootSingleWidth, rootCenter);
             }
 
             return { width: rootRowWidth, lBound: statsL, rBound: statsR };
@@ -438,7 +541,7 @@ const FamilyTree: React.FC<Props> = ({
         if (minX === Infinity) return emptyResult;
 
         return { nodePositions, bounds: { minX, maxX, minY, maxY } };
-    }, [visibleCharacters, visibleLinks, customOrder, getSpouses, rootCoords]);
+    }, [visibleCharacters, visibleLinks, customOrder, getSpouses, rootCoords, getStrictChildren, getSpouseLayoutBias]);
 
     // --- View Handling ---
     
@@ -537,25 +640,42 @@ const FamilyTree: React.FC<Props> = ({
             const exists = familyLinks.some(l => l.type === 'marriage' && (l.partners || []).includes(targetId) && (l.partners || []).includes(sourceId));
             if (!exists) onAddFamilyLink({ id: crypto.randomUUID(), type: 'marriage', partners: [targetId, sourceId] });
 
-            const currentOrder = getSpouses(targetId).filter(id => id !== sourceId);
-            const newOrder = [...currentOrder];
+            const bias = getSpouseLayoutBias(targetId);
+            const currentSpouses = getSpouses(targetId).filter(id => id !== sourceId);
             
-            // Logic:
-            // Right Side: Index 0 (Even)
-            // Left Side: Index 1 (Odd)
+            // Reconstruct the intended layout buckets
+            const leftBucket: string[] = [];
+            const rightBucket: string[] = [];
             
-            if (zone === 'spouse_right') {
-                // User dropped on Right Zone. Force to Index 0 (Primary Right).
-                newOrder.unshift(sourceId);
-            } else {
-                // User dropped on Left Zone.
-                if (newOrder.length === 0) {
-                    // No existing spouses. Must go to Index 0 (Right) as layout requires.
-                    newOrder.push(sourceId);
+            currentSpouses.forEach((sid, idx) => {
+                const isEven = idx % 2 === 0;
+                // Default: Even=Right, Odd=Left
+                // Flip: Even=Left, Odd=Right
+                const goRight = bias === 'default' ? isEven : !isEven;
+                
+                if (goRight) rightBucket.push(sid);
+                else leftBucket.push(sid);
+            });
+            
+            // Add new spouse to requested bucket
+            if (zone === 'spouse_left') leftBucket.push(sourceId); // Add to end of left side
+            else rightBucket.unshift(sourceId); // Add to start of right side (closest to self)
+            
+            // Reconstruct single array by interleaving based on bias
+            const newOrder: string[] = [];
+            let l = 0, r = 0;
+            const total = leftBucket.length + rightBucket.length;
+            
+            for (let i = 0; i < total; i++) {
+                const isEven = i % 2 === 0;
+                const shouldPickFromRight = bias === 'default' ? isEven : !isEven;
+                
+                if (shouldPickFromRight) {
+                    if (r < rightBucket.length) newOrder.push(rightBucket[r++]);
+                    else if (l < leftBucket.length) newOrder.push(leftBucket[l++]);
                 } else {
-                    // Has existing spouse(s). Insert at Index 1 (Primary Left).
-                    // This handles the "2nd spouse defaults to empty side" requirement.
-                    newOrder.splice(1, 0, sourceId);
+                    if (l < leftBucket.length) newOrder.push(leftBucket[l++]);
+                    else if (r < rightBucket.length) newOrder.push(rightBucket[r++]);
                 }
             }
 
@@ -1063,4 +1183,3 @@ const FamilyTree: React.FC<Props> = ({
 };
 
 export default FamilyTree;
-
