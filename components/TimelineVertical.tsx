@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users, Edit3, CheckCircle2, Circle, MousePointerClick, HelpCircle, ArrowRight, LayoutGrid, MousePointer2 } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users, Edit3, CheckCircle2, Circle, MousePointerClick, HelpCircle, ArrowRight, LayoutGrid, MousePointer2, AlignLeft } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -92,6 +92,7 @@ const TimelineVertical: React.FC<Props> = ({
       locationName: '',
       timeLabel: '',
       relatedTimePointId: '',
+      note: '',
       color: COLORS[Math.floor(Math.random() * COLORS.length)]
     });
     setSelectedMultiChars([defaultCharId]);
@@ -478,6 +479,11 @@ const TimelineVertical: React.FC<Props> = ({
                                   )}
                                 </div>
                               )}
+                              {seg.note && (
+                                <div className="mt-1.5 pt-1.5 border-t border-white/10 text-[9px] text-blue-100/70 leading-tight italic line-clamp-2">
+                                    {seg.note}
+                                </div>
+                              )}
                           </div>
                           <button onClick={(e) => { e.stopPropagation(); onRemoveSegment(seg.id); }} className="opacity-0 group-hover/seg:opacity-100 p-1.5 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={12} /></button>
                         </div>
@@ -522,6 +528,7 @@ const TimelineVertical: React.FC<Props> = ({
                                   endSlot: selectionRange.end,
                                   locationName: '',
                                   timeLabel: '',
+                                  note: '',
                                   color: COLORS[Math.floor(Math.random() * COLORS.length)]
                               });
                               setSelectedMultiChars([activeCharacters[0]?.id || characters[0]?.id]);
@@ -669,6 +676,16 @@ const TimelineVertical: React.FC<Props> = ({
               <div className="space-y-2">
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest">时间备注 (手动)</label>
                 <input className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500" placeholder="例如: 14:00" value={editingSeg.timeLabel} onChange={(e) => setEditingSeg({ ...editingSeg, timeLabel: e.target.value })} />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-widest flex items-center gap-2"><AlignLeft size={12}/> 备注详情</label>
+                <textarea 
+                  className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-sm text-white outline-none focus:ring-1 focus:ring-blue-500 resize-none h-20"
+                  placeholder="记录具体行动细节..."
+                  value={editingSeg.note || ''}
+                  onChange={(e) => setEditingSeg({ ...editingSeg, note: e.target.value })}
+                />
               </div>
             </div>
             <div className="p-6 border-t border-slate-700 flex justify-end gap-3 bg-slate-900/30">

@@ -87,6 +87,7 @@ export interface TimelineSegment {
   timeLabel?: string; 
   color?: string;
   relatedTimePointId?: string;
+  note?: string; // 新增：活动备注
 }
 
 export interface TimePeriodLabel {
