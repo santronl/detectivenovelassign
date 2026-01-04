@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import * as d3 from 'd3';
 import { Character, Relationship, RelationshipDef, CharacterGroup, Clue } from '../types';
-import { Move, Trash2, Users, Maximize, Package, Link as LinkIcon, X, Check, MousePointer2, Layers, Grid, Palette, Type, Ungroup, AlertCircle, CheckCircle2, Search, Minimize, GripVertical, User } from 'lucide-react';
+import { Move, Trash2, Users, Maximize, Package, Link as LinkIcon, X, Check, MousePointer2, Layers, Grid, Palette, Type, Ungroup, AlertCircle, CheckCircle2, Search, Minimize, GripVertical, User, Edit3 } from 'lucide-react';
 
 interface Props {
   viewMode: 'people' | 'items';
@@ -45,6 +45,7 @@ const RelationshipGraph: React.FC<Props> = ({
   // Connection State
   const [connectingSourceId, setConnectingSourceId] = useState<string | null>(null);
   const [linkModalData, setLinkModalData] = useState<{ sourceId: string, targetId: string } | null>(null);
+  const [editingLink, setEditingLink] = useState<{ source: string, target: string, relation: string } | null>(null);
   const [newRelLabel, setNewRelLabel] = useState("");
   const [newRelColor, setNewRelColor] = useState("#6366f1");
 
@@ -108,16 +109,41 @@ const RelationshipGraph: React.FC<Props> = ({
 
   const confirmConnection = () => {
       if (linkModalData && newRelLabel.trim()) {
-          onAddRelationship(linkModalData.sourceId, linkModalData.targetId, newRelLabel.trim());
-          const exists = relationshipDefs.some(d => d.label === newRelLabel.trim());
-          if (!exists) {
+          const label = newRelLabel.trim();
+          onAddRelationship(linkModalData.sourceId, linkModalData.targetId, label);
+          
+          const existingDef = relationshipDefs.find(d => d.label === label);
+          if (!existingDef) {
               onUpdateDefs([...relationshipDefs, { 
                   id: crypto.randomUUID(), 
-                  label: newRelLabel.trim(), 
+                  label: label, 
                   color: newRelColor 
               }]);
+          } else if (existingDef.color !== newRelColor) {
+              onUpdateDefs(relationshipDefs.map(d => d.id === existingDef.id ? { ...d, color: newRelColor } : d));
           }
           setLinkModalData(null);
+      }
+  };
+
+  const confirmEdit = () => {
+      if (editingLink && newRelLabel.trim()) {
+          const label = newRelLabel.trim();
+          // Adding with same source/target will overwrite the existing one in App state
+          onAddRelationship(editingLink.source, editingLink.target, label);
+          
+          const existingDef = relationshipDefs.find(d => d.label === label);
+          if (!existingDef) {
+              onUpdateDefs([...relationshipDefs, { 
+                  id: crypto.randomUUID(), 
+                  label: label, 
+                  color: newRelColor 
+              }]);
+          } else if (existingDef.color !== newRelColor) {
+              onUpdateDefs(relationshipDefs.map(d => d.id === existingDef.id ? { ...d, color: newRelColor } : d));
+          }
+          
+          setEditingLink(null);
       }
   };
 
@@ -385,7 +411,18 @@ const RelationshipGraph: React.FC<Props> = ({
         text.text(d.relation).attr("fill", color);
         const bbox = (text.node() as SVGTextElement).getBBox();
         rect.attr("width", bbox.width + 16).attr("height", bbox.height + 8).attr("x", -(bbox.width + 16) / 2).attr("y", -(bbox.height + 8) / 2).attr("stroke", color);
-        sel.attr("transform", `translate(${(s.x + t.x) / 2},${(s.y + t.y) / 2})`).on("click", (e) => { e.stopPropagation(); if (mode === 'delete') onRemoveRelationship(d.source, d.target, d.relation); });
+        
+        sel.attr("transform", `translate(${(s.x + t.x) / 2},${(s.y + t.y) / 2})`).on("click", (e) => { 
+            e.stopPropagation(); 
+            if (mode === 'delete') {
+                onRemoveRelationship(d.source, d.target, d.relation); 
+            } else {
+                setEditingLink({ source: d.source, target: d.target, relation: d.relation });
+                setNewRelLabel(d.relation);
+                const def = getDefByLabel(d.relation);
+                setNewRelColor(def ? def.color : '#6366f1');
+            }
+        });
     });
 
     const layerNodes = g.select(".nodes-layer");
@@ -620,6 +657,63 @@ const RelationshipGraph: React.FC<Props> = ({
                     <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex gap-3">
                         <button onClick={() => setLinkModalData(null)} className="flex-1 py-2.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-700 rounded-xl transition-colors">取消</button>
                         <button onClick={confirmConnection} disabled={!newRelLabel.trim()} className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg transition-all">确认连线</button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* Edit Link Modal */}
+        {editingLink && (
+            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+                <div className="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden animate-in zoom-in-95">
+                    <div className="p-4 border-b border-slate-700 bg-slate-900/50 flex justify-between items-center">
+                        <h3 className="font-bold text-white flex items-center gap-2 text-sm"><Edit3 size={16} className="text-blue-400"/> 编辑关系</h3>
+                        <button onClick={() => setEditingLink(null)} className="text-slate-400 hover:text-white"><X size={18}/></button>
+                    </div>
+                    <div className="p-5 space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">选择已有关系类型</label>
+                            <div className="flex flex-wrap gap-2">
+                                {relationshipDefs.map(def => (
+                                    <button 
+                                        key={def.id}
+                                        onClick={() => { setNewRelLabel(def.label); setNewRelColor(def.color); }}
+                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-2 ${newRelLabel === def.label ? 'ring-2 ring-white/20 scale-105' : 'opacity-80 hover:opacity-100'}`}
+                                        style={{ backgroundColor: `${def.color}20`, borderColor: def.color, color: def.color }}
+                                    >
+                                        {def.label}
+                                        {newRelLabel === def.label && <Check size={12} />}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-3 pt-2 border-t border-slate-700/50">
+                            <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">或 自定义</label>
+                            <div className="flex gap-2">
+                                <input 
+                                    autoFocus
+                                    value={newRelLabel}
+                                    onChange={(e) => setNewRelLabel(e.target.value)}
+                                    placeholder="输入关系名称"
+                                    className="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-blue-500"
+                                />
+                                <div className="relative w-10 shrink-0">
+                                    <input 
+                                        type="color" 
+                                        value={newRelColor}
+                                        onChange={(e) => setNewRelColor(e.target.value)}
+                                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                                    />
+                                    <div className="w-full h-full rounded-xl border border-slate-700 shadow-sm" style={{ backgroundColor: newRelColor }} />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="p-4 bg-slate-900/30 border-t border-slate-700 flex gap-3">
+                        <button onClick={() => { onRemoveRelationship(editingLink.source, editingLink.target, editingLink.relation); setEditingLink(null); }} className="px-4 py-2.5 bg-red-600/10 hover:bg-red-600 text-red-500 hover:text-white border border-red-600/50 rounded-xl text-xs font-bold transition-all flex items-center gap-2"><Trash2 size={14}/> 删除</button>
+                        <div className="flex-1"></div>
+                        <button onClick={() => setEditingLink(null)} className="px-4 py-2.5 text-xs font-bold text-slate-400 hover:text-white border border-slate-700 rounded-xl transition-colors">取消</button>
+                        <button onClick={confirmEdit} disabled={!newRelLabel.trim()} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-lg transition-all">保存</button>
                     </div>
                 </div>
             </div>
