@@ -47,6 +47,7 @@ const FamilyTree: React.FC<Props> = ({
     const [isPoppedOut, setIsPoppedOut] = useState(false);
     const [dropTarget, setDropTarget] = useState<{ id: string, zone: 'parent' | 'spouse' | 'child_single' | 'marriage_joint' | 'other_relation' } | null>(null);
     const [hoveredCharId, setHoveredCharId] = useState<string | null>(null);
+    const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null); // New: Track drag over from external sources
     const [draggingCharId, setDraggingCharId] = useState<string | null>(null);
     const [isAddingVirtual, setIsAddingVirtual] = useState(false);
     const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -470,6 +471,7 @@ const FamilyTree: React.FC<Props> = ({
         e.preventDefault(); e.stopPropagation();
         setDropTarget(null);
         setHoveredCharId(null);
+        setDragOverNodeId(null);
         const ids = (e.dataTransfer.getData("application/mysterymind-ids") ? JSON.parse(e.dataTransfer.getData("application/mysterymind-ids")) : [e.dataTransfer.getData("application/react-dnd-char-id")]);
         if (ids.length === 0 || !ids[0]) return;
         const sourceId = ids[0];
@@ -504,6 +506,7 @@ const FamilyTree: React.FC<Props> = ({
         setDropTarget(null);
         setHoveredCharId(null);
         setDraggingCharId(null);
+        setDragOverNodeId(null);
         
         const ids = (e.dataTransfer.getData("application/mysterymind-ids") ? JSON.parse(e.dataTransfer.getData("application/mysterymind-ids")) : [e.dataTransfer.getData("application/react-dnd-char-id")]);
         if (ids.length === 0 || !ids[0]) return;
@@ -588,6 +591,7 @@ const FamilyTree: React.FC<Props> = ({
     const handleCanvasDrop = (e: React.DragEvent) => {
         e.preventDefault();
         setDraggingCharId(null);
+        setDragOverNodeId(null);
         const rawIds = e.dataTransfer.getData("application/mysterymind-ids");
         const singleId = e.dataTransfer.getData("application/react-dnd-char-id");
         
@@ -738,6 +742,13 @@ const FamilyTree: React.FC<Props> = ({
         
         // Check if dragging node is a sibling of this node
         const isSiblingReorder = draggingCharId && draggingCharId !== char.id && getCommonParentKey(draggingCharId, char.id) !== null;
+
+        // Show drop zones if we are dragging internally OR if we are dragging externally (draggingCharId is null) over this node
+        // AND we are currently hovering this node.
+        const showDropZones = isHovered && (
+            (draggingCharId && draggingCharId !== char.id) || 
+            (!draggingCharId && dragOverNodeId === char.id)
+        );
         
         return (
             <foreignObject 
@@ -755,18 +766,24 @@ const FamilyTree: React.FC<Props> = ({
                         e.dataTransfer.effectAllowed = "move";
                         setDraggingCharId(char.id);
                     }}
-                    onDragEnd={() => setDraggingCharId(null)}
+                    onDragEnd={() => {
+                        setDraggingCharId(null);
+                        setDragOverNodeId(null);
+                    }}
                     onDragOver={(e) => { 
                         e.preventDefault(); 
                         setHoveredCharId(char.id); 
+                        setDragOverNodeId(char.id);
                     }}
                     onDragLeave={(e) => {
                         // Crucial fix: Prevent flickering by checking if we are entering a child element (like the drop zones)
                         if (e.currentTarget.contains(e.relatedTarget as Node)) return;
                         setHoveredCharId(null); 
                         setDropTarget(null); 
+                        setDragOverNodeId(null);
                     }}
                     onDrop={(e) => {
+                         setDragOverNodeId(null);
                          // If dropped on specific zones, handled by child divs.
                          // If dropped here (on center), treat as smart drop/reorder
                          if (!dropTarget) {
@@ -788,7 +805,7 @@ const FamilyTree: React.FC<Props> = ({
                     </div>
 
                     {/* Interactive overlay for Delete (Always visible on hover) */}
-                    {isHovered && !draggingCharId && (
+                    {isHovered && !draggingCharId && !dragOverNodeId && (
                         <button 
                             onMouseDown={(e) => { e.stopPropagation(); onRemoveActiveChar(char.id); }}
                             className="absolute top-1 right-1 p-1.5 text-slate-400 hover:text-red-400 bg-slate-800/80 rounded-full z-50 pointer-events-auto hover:bg-slate-700"
@@ -807,8 +824,8 @@ const FamilyTree: React.FC<Props> = ({
                         </div>
                     )}
 
-                    {/* Drop Zones (Only visible when dragging another node) */}
-                    {draggingCharId && draggingCharId !== char.id && isHovered && (
+                    {/* Drop Zones (Visible when dragging another node over this node) */}
+                    {showDropZones && (
                         <>
                             {/* Top: Add Parent */}
                             <div 
