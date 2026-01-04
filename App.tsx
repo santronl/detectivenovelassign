@@ -1,4 +1,5 @@
 
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { parseCharacterList } from './utils/parser';
@@ -1067,6 +1068,7 @@ const App: React.FC = () => {
                     activeCharIds={state.familyActiveCharIds || []}
                     familyLinks={state.familyLinks || []}
                     customOrder={state.familyCustomOrder || {}}
+                    rootCoords={state.familyRootCoords || {}}
                     blobUrls={blobUrls}
                     onAddFamilyLink={l => setState(p => ({ ...p, familyLinks: [...(p.familyLinks || []), l] }))}
                     onUpdateFamilyLink={l => setState(p => ({ ...p, familyLinks: (p.familyLinks || []).map(x => x.id === l.id ? l : x) }))}
@@ -1079,7 +1081,8 @@ const App: React.FC = () => {
                             !(l.partners || []).includes(id) && 
                             !(l.parents || []).includes(id) && 
                             l.child !== id
-                        )
+                        ),
+                        familyRootCoords: Object.fromEntries(Object.entries(p.familyRootCoords || {}).filter(([k]) => k !== id))
                     }))}
                     onAddVirtualChar={(name) => {
                         const newChar: Character = {
@@ -1095,6 +1098,7 @@ const App: React.FC = () => {
                         }));
                     }}
                     onUpdateCustomOrder={(order) => setState(p => ({ ...p, familyCustomOrder: order }))}
+                    onUpdateRootCoords={(coords) => setState(p => ({ ...p, familyRootCoords: coords }))}
                 />
             )}
             {activeTab === 'evidence' && (

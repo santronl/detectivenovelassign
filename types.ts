@@ -1,4 +1,5 @@
 
+
 export interface Character {
   id: string;
   name: string;
@@ -167,6 +168,7 @@ export interface AppState {
   familyLinks: FamilyLink[];
   familyActiveCharIds: string[];
   familyCustomOrder: Record<string, string[]>; // 新增：保存家族分支内的节点排序
+  familyRootCoords: Record<string, { x: number; y: number }>; // 新增：保存家族树根节点的绝对坐标
 
   currentMapId: string;
   currentTimeId: string;
@@ -214,6 +216,7 @@ export const INITIAL_STATE: AppState = {
   familyLinks: [],
   familyActiveCharIds: [],
   familyCustomOrder: {},
+  familyRootCoords: {},
 
   currentMapId: 'default',
   currentTimeId: 't1',

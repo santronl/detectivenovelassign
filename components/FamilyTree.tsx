@@ -1,7 +1,9 @@
+
+
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
-import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair, ArrowDown, ArrowUp, Check, Search } from 'lucide-react';
+import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair, ArrowDown, ArrowUp, Check, Search, ArrowLeftRight, ArrowUpDown } from 'lucide-react';
 import PortalWindow from './PortalWindow';
 
 interface Props {
@@ -9,6 +11,7 @@ interface Props {
   activeCharIds: string[];
   familyLinks: FamilyLink[];
   customOrder: Record<string, string[]>;
+  rootCoords: Record<string, { x: number; y: number }>;
   blobUrls: Record<string, string>;
   onAddFamilyLink: (link: FamilyLink) => void;
   onUpdateFamilyLink?: (link: FamilyLink) => void;
@@ -17,6 +20,7 @@ interface Props {
   onRemoveActiveChar: (charId: string) => void;
   onAddVirtualChar: (name: string) => void;
   onUpdateCustomOrder: (order: Record<string, string[]>) => void;
+  onUpdateRootCoords: (coords: Record<string, { x: number; y: number }>) => void;
 }
 
 const CARD_WIDTH = 160;
@@ -26,15 +30,13 @@ const SIBLING_GAP = 40;
 const COUSIN_GAP = 80;
 const VERTICAL_SPACING = 200;
 
-// Define NodePos at module level to ensure type visibility
 type NodePos = { x: number, y: number, gen: number };
 
 const FamilyTree: React.FC<Props> = ({ 
-    characters, activeCharIds, familyLinks, customOrder, blobUrls,
+    characters, activeCharIds, familyLinks, customOrder, rootCoords, blobUrls,
     onAddFamilyLink, onUpdateFamilyLink, onRemoveFamilyLink, onAddActiveChar, onRemoveActiveChar,
-    onAddVirtualChar, onUpdateCustomOrder
+    onAddVirtualChar, onUpdateCustomOrder, onUpdateRootCoords
 }) => {
-    // Use a callback ref for SVG to ensure d3 is initialized whenever the DOM node is created (e.g., inside Portal)
     const [svgNode, setSvgNode] = useState<SVGSVGElement | null>(null);
     const svgRefCallback = useCallback((node: SVGSVGElement | null) => {
         setSvgNode(node);
@@ -45,11 +47,11 @@ const FamilyTree: React.FC<Props> = ({
     const [isPoppedOut, setIsPoppedOut] = useState(false);
     const [dropTarget, setDropTarget] = useState<{ id: string, zone: 'parent' | 'spouse' | 'child_single' | 'marriage_joint' | 'other_relation' } | null>(null);
     const [hoveredCharId, setHoveredCharId] = useState<string | null>(null);
+    const [draggingCharId, setDraggingCharId] = useState<string | null>(null);
     const [isAddingVirtual, setIsAddingVirtual] = useState(false);
     const [isGuideOpen, setIsGuideOpen] = useState(false);
     const [virtualName, setVirtualName] = useState("");
     const [searchTerm, setSearchTerm] = useState("");
-    const [sidebarSearch, setSidebarSearch] = useState("");
 
     const visibleCharacters = useMemo(() => {
         const activeSet = new Set(activeCharIds);
@@ -69,8 +71,49 @@ const FamilyTree: React.FC<Props> = ({
         });
     }, [visibleCharacters, familyLinks]);
 
+    // --- Helpers for Relationship Logic ---
+    const getSpouses = useCallback((id: string) => {
+        const spouses = new Set<string>();
+        visibleLinks.forEach(l => {
+            if (l.type === 'marriage' && l.partners?.includes(id)) {
+                const partner = l.partners.find(p => p !== id);
+                if (partner) spouses.add(partner);
+            }
+        });
+        return Array.from(spouses).sort();
+    }, [visibleLinks]);
+
+    const getParents = useCallback((childId: string) => {
+        const parents = new Set<string>();
+        visibleLinks.forEach(l => {
+            if (l.type === 'parent_child' && l.child === childId && l.parents) {
+                l.parents.forEach(p => parents.add(p));
+            }
+        });
+        return Array.from(parents).sort();
+    }, [visibleLinks]);
+
+    const getCommonParentKey = useCallback((id1: string, id2: string) => {
+        const p1 = getParents(id1);
+        const p2 = getParents(id2);
+        
+        // Root siblings (no parents)
+        if (p1.length === 0 && p2.length === 0) return 'roots';
+
+        // Check if parents match exactly
+        if (p1.length !== p2.length) return null;
+        const sortedP1 = [...p1].sort();
+        const sortedP2 = [...p2].sort();
+        
+        for(let i=0; i<sortedP1.length; i++) {
+            if (sortedP1[i] !== sortedP2[i]) return null;
+        }
+        
+        return `children_${sortedP1.join('_')}`;
+    }, [getParents]);
+
     // --- Layout Algorithm ---
-    const layoutData = useMemo(() => {
+    const layoutData = useMemo((): { nodePositions: Record<string, NodePos>, bounds: { minX: number, maxX: number, minY: number, maxY: number } } => {
         const emptyResult = { 
             nodePositions: {} as Record<string, NodePos>, 
             bounds: { minX: 0, maxX: 0, minY: 0, maxY: 0 } 
@@ -82,20 +125,9 @@ const FamilyTree: React.FC<Props> = ({
         const placedNodes = new Set<string>();
         let currentMaxX = 0;
 
-        const getSpouses = (id: string): string[] => {
-            const spouses = new Set<string>();
-            visibleLinks.forEach(l => {
-                if (l.type === 'marriage' && l.partners?.includes(id)) {
-                    const partner = l.partners.find(p => p !== id);
-                    if (partner) spouses.add(partner);
-                }
-            });
-            return Array.from(spouses).sort();
-        };
-
         const getStrictChildren = (p1: string, p2: string | null): string[] => {
             const p1Spouses = getSpouses(p1);
-            const children = visibleLinks
+            const rawChildren = visibleLinks
                 .filter(l => {
                     if (l.type !== 'parent_child' || !l.child) return false;
                     const ps = l.parents || [];
@@ -108,7 +140,28 @@ const FamilyTree: React.FC<Props> = ({
                     }
                 })
                 .map(l => l.child!);
-            return Array.from(new Set<string>(children)).sort((a, b) => a.localeCompare(b));
+            
+            const uniqueChildren = Array.from(new Set<string>(rawChildren));
+            
+            const parentKey = p2 
+                ? `children_${[p1, p2].sort().join('_')}` 
+                : `children_${p1}`;
+            
+            const order = customOrder[parentKey];
+            if (order && order.length > 0) {
+                uniqueChildren.sort((a, b) => {
+                    const idxA = order.indexOf(a);
+                    const idxB = order.indexOf(b);
+                    if (idxA === -1 && idxB === -1) return a.localeCompare(b);
+                    if (idxA === -1) return 1;
+                    if (idxB === -1) return -1;
+                    return idxA - idxB;
+                });
+            } else {
+                uniqueChildren.sort((a, b) => a.localeCompare(b));
+            }
+            
+            return uniqueChildren;
         };
 
         const calculateChildrenBlockWidth = (children: string[]): number => {
@@ -141,7 +194,7 @@ const FamilyTree: React.FC<Props> = ({
             }
         };
 
-        const layoutSubtree = (rootId: string, gen: number, startX: number): number => {
+        const layoutSubtree = (rootId: string, gen: number, startX: number, startY: number): number => {
             if (placedNodes.has(rootId)) return 0;
 
             const allSpouses = getSpouses(rootId);
@@ -197,7 +250,7 @@ const FamilyTree: React.FC<Props> = ({
 
             let currentX = startX;
             nodeSequence.forEach((nodeId, idx) => {
-                nodePositions[nodeId] = { x: currentX, y: gen * VERTICAL_SPACING, gen };
+                nodePositions[nodeId] = { x: currentX, y: startY + gen * VERTICAL_SPACING, gen };
                 placedNodes.add(nodeId);
                 currentX += CARD_WIDTH;
                 if (idx < gaps.length) {
@@ -209,7 +262,7 @@ const FamilyTree: React.FC<Props> = ({
                 if (children.length === 0) return;
                 let childStartX = targetCenterX - width / 2;
                 children.forEach(childId => {
-                    const w = layoutSubtree(childId, gen + 1, childStartX);
+                    const w = layoutSubtree(childId, gen + 1, childStartX, startY);
                     childStartX += w + SIBLING_GAP;
                 });
                 
@@ -286,15 +339,36 @@ const FamilyTree: React.FC<Props> = ({
             const idxA = rootOrder.indexOf(a.id);
             const idxB = rootOrder.indexOf(b.id);
             if (idxA !== -1 && idxB !== -1) return idxA - idxB;
-            return 0;
+            if (idxA !== -1) return -1;
+            if (idxB !== -1) return 1;
+            return a.name.localeCompare(b.name);
         });
 
         sortedRoots.forEach(root => {
             if (!placedNodes.has(root.id)) {
                 const mySpouses = getSpouses(root.id);
                 if (mySpouses.some(s => placedNodes.has(s))) return;
-                const width = layoutSubtree(root.id, 0, currentMaxX);
-                currentMaxX += width + COUSIN_GAP; 
+                
+                let rootX = currentMaxX;
+                let rootY = 0;
+                
+                // Use manual coordinate if available for this root
+                if (rootCoords[root.id]) {
+                    rootX = rootCoords[root.id].x;
+                    rootY = rootCoords[root.id].y;
+                }
+
+                const width = layoutSubtree(root.id, 0, rootX, rootY);
+                
+                // If manually placed, we don't necessarily want to push the auto-layout cursor
+                // linearly unless it overlaps. For simplicity, we keep pushing currentMaxX 
+                // to avoid overlaps for subsequent auto-placed nodes, or if it was auto-placed.
+                if (!rootCoords[root.id]) {
+                    currentMaxX += width + COUSIN_GAP; 
+                } else {
+                    // Update max X just in case mixed placement happens to avoid collision on right
+                    currentMaxX = Math.max(currentMaxX, rootX + width + COUSIN_GAP);
+                }
             }
         });
 
@@ -309,7 +383,7 @@ const FamilyTree: React.FC<Props> = ({
         if (minX === Infinity) return emptyResult;
 
         return { nodePositions, bounds: { minX, maxX, minY, maxY } };
-    }, [visibleCharacters, visibleLinks, customOrder]);
+    }, [visibleCharacters, visibleLinks, customOrder, getSpouses, rootCoords]);
 
     // --- View Handling ---
     
@@ -320,12 +394,9 @@ const FamilyTree: React.FC<Props> = ({
         const graphWidth = maxX - minX;
         const graphHeight = maxY - minY;
         
-        // Determine container size. In popped out mode, we might not have containerRef readily available or it might be stale.
-        // We can fallback to window dimensions for full screen mode if containerRef is null
         let containerWidth = containerRef.current?.clientWidth || window.innerWidth;
         let containerHeight = containerRef.current?.clientHeight || window.innerHeight;
         
-        // If embedded and container ref is missing (rare), skip
         if (!isPoppedOut && !containerRef.current) return;
 
         if (graphWidth === 0 || graphHeight === 0) return;
@@ -336,13 +407,12 @@ const FamilyTree: React.FC<Props> = ({
         const k = Math.min(scaleX, scaleY, 1); 
         
         const centerX = (minX + maxX) / 2;
-        const centerY = minY + 100;
+        // const centerY = (minY + maxY) / 2;
         
         const tx = containerWidth / 2 - centerX * k;
         const ty = 100 - minY * k;
 
         const svg = d3.select(svgNode);
-        // We need to apply this transform to the zoom behavior attached to the SVG
         const zoomBehavior = d3.zoom<SVGSVGElement, any>().scaleExtent([0.1, 5]);
         const newTransform = d3.zoomIdentity.translate(tx, ty).scale(k);
         
@@ -351,7 +421,6 @@ const FamilyTree: React.FC<Props> = ({
         } else {
             svg.call(zoomBehavior.transform as any, newTransform);
         }
-        // State update happens via the 'zoom' event listener which is triggered by .call above
     }, [layoutData, isPoppedOut, svgNode]);
 
     // Initialize D3 Zoom
@@ -360,19 +429,29 @@ const FamilyTree: React.FC<Props> = ({
         const svg = d3.select(svgNode);
         const zoomBehavior = d3.zoom<SVGSVGElement, any>()
             .scaleExtent([0.1, 5])
-            .on("zoom", (event: any) => {
-                const t = event.transform || { x: 0, y: 0, k: 1 };
+            .filter((event) => {
+                // IMPORTANT: Conflict Resolution
+                // If dragging a character (target is inside .node-card), ignore zoom/pan.
+                const target = event.target as HTMLElement;
+                if (target.closest('.node-card')) return false;
+                
+                // Allow wheel scrolling
+                if (event.type === 'wheel') return true;
+                
+                // Standard behavior (ignore secondary clicks)
+                return !event.ctrlKey && !event.button;
+            })
+            .on("zoom", (event) => {
+                const e = event as any;
+                const t = e.transform || { x: 0, y: 0, k: 1 };
                 setTransform({ x: t.x, y: t.y, k: t.k });
             });
         
         svg.call(zoomBehavior);
-        
-        // Important: Restore previous transform state to the new DOM node (e.g. when moving to Portal)
-        // This ensures panning continues smoothly and zoom state isn't lost/reset to identity unexpectedly
-        const t = transform as { x: number, y: number, k: number };
+        const t = transform;
         svg.call(zoomBehavior.transform as any, d3.zoomIdentity.translate(t.x, t.y).scale(t.k));
         
-    }, [svgNode]); // Re-run when the SVG node changes (mount/unmount)
+    }, [svgNode]);
 
     // Auto-fit on data change
     useEffect(() => {
@@ -390,6 +469,7 @@ const FamilyTree: React.FC<Props> = ({
     const handleDropOnPerson = (e: React.DragEvent, targetId: string, zone: 'parent' | 'spouse' | 'child_single' | 'other_relation') => {
         e.preventDefault(); e.stopPropagation();
         setDropTarget(null);
+        setHoveredCharId(null);
         const ids = (e.dataTransfer.getData("application/mysterymind-ids") ? JSON.parse(e.dataTransfer.getData("application/mysterymind-ids")) : [e.dataTransfer.getData("application/react-dnd-char-id")]);
         if (ids.length === 0 || !ids[0]) return;
         const sourceId = ids[0];
@@ -419,11 +499,175 @@ const FamilyTree: React.FC<Props> = ({
         onAddFamilyLink({ id: crypto.randomUUID(), type: 'parent_child', parents: [p1, p2], child: childId });
     };
 
+    const handleSmartDrop = (e: React.DragEvent, targetId: string) => {
+        e.preventDefault(); e.stopPropagation();
+        setDropTarget(null);
+        setHoveredCharId(null);
+        setDraggingCharId(null);
+        
+        const ids = (e.dataTransfer.getData("application/mysterymind-ids") ? JSON.parse(e.dataTransfer.getData("application/mysterymind-ids")) : [e.dataTransfer.getData("application/react-dnd-char-id")]);
+        if (ids.length === 0 || !ids[0]) return;
+        const sourceId = ids[0];
+        if (sourceId === targetId) return;
+
+        // Try Reorder
+        const parentKey = getCommonParentKey(sourceId, targetId);
+        if (parentKey) {
+            let siblings: string[] = [];
+            
+            if (parentKey === 'roots') {
+                const hasParents = new Set<string>();
+                visibleLinks.filter(l => l.type === 'parent_child').forEach(l => {
+                    if (l.child) hasParents.add(l.child);
+                });
+                const candidates = visibleCharacters.filter(c => !hasParents.has(c.id));
+                siblings = candidates.map(c => c.id);
+            } else {
+                const parents = getParents(targetId); 
+                siblings = visibleLinks
+                    .filter(l => l.type === 'parent_child' && l.child)
+                    .filter(l => {
+                        const lParents = (l.parents || []).sort();
+                        if (lParents.length !== parents.length) return false;
+                        return lParents.every((p, i) => p === parents[i]);
+                    })
+                    .map(l => l.child!);
+            }
+            siblings = Array.from(new Set(siblings));
+
+            // Get current sort to determine precise insertion index
+            const existingSort = customOrder[parentKey] || [];
+            
+            // Reconstruct the full current order of siblings (including any not in customOrder yet but visually sorted)
+            const currentSortedSiblings = [...siblings].sort((a, b) => {
+                const idxA = existingSort.indexOf(a);
+                const idxB = existingSort.indexOf(b);
+                if (idxA === -1 && idxB === -1) return a.localeCompare(b);
+                if (idxA === -1) return 1;
+                if (idxB === -1) return -1;
+                return idxA - idxB;
+            });
+            
+            const oldSourceIdx = currentSortedSiblings.indexOf(sourceId);
+            const oldTargetIdx = currentSortedSiblings.indexOf(targetId);
+            
+            // Create new list without source
+            const newSiblings = currentSortedSiblings.filter(id => id !== sourceId);
+            const newTargetIdx = newSiblings.indexOf(targetId);
+            
+            let insertAt = newTargetIdx;
+            
+            // Logic: 
+            // If dragging from left to right (source < target), insert AFTER target.
+            // If dragging from right to left (source > target), insert BEFORE target.
+            if (oldSourceIdx !== -1 && oldTargetIdx !== -1) {
+                if (oldSourceIdx < oldTargetIdx) {
+                    insertAt = newTargetIdx + 1;
+                } else {
+                    insertAt = newTargetIdx;
+                }
+            }
+
+            newSiblings.splice(insertAt, 0, sourceId);
+            
+            onUpdateCustomOrder({
+                ...customOrder,
+                [parentKey]: newSiblings
+            });
+            return;
+        }
+
+        // Fallback: Default to 'parent' drop (Add relationship)
+        onAddActiveChar(sourceId);
+        const exists = familyLinks.some(l => l.type === 'parent_child' && l.child === sourceId && l.parents?.includes(targetId));
+        if (!exists) {
+            onAddFamilyLink({ id: crypto.randomUUID(), type: 'parent_child', parents: [targetId], child: sourceId });
+        }
+    };
+
+    const handleCanvasDrop = (e: React.DragEvent) => {
+        e.preventDefault();
+        setDraggingCharId(null);
+        const rawIds = e.dataTransfer.getData("application/mysterymind-ids");
+        const singleId = e.dataTransfer.getData("application/react-dnd-char-id");
+        
+        let ids: string[] = [];
+        if (rawIds) {
+            try {
+                ids = JSON.parse(rawIds);
+            } catch (e) {}
+        } else if (singleId) {
+            ids = [singleId];
+        }
+
+        if (ids.length === 0) return;
+
+        // If not dragged onto the container, just add them
+        if (!containerRef.current) {
+             ids.forEach(id => onAddActiveChar(id));
+             return;
+        }
+
+        const rect = containerRef.current.getBoundingClientRect();
+        // Calculate dropped position in SVG coordinates
+        const dropX = (e.clientX - rect.left - transform.x) / transform.k;
+        const dropY = (e.clientY - rect.top - transform.y) / transform.k;
+
+        // Update root coordinates with absolute positions
+        // Stagger slightly if dropping multiple items
+        const newRootCoords = { ...rootCoords };
+        ids.forEach((id, i) => {
+            newRootCoords[id] = {
+                x: dropX + (i * 20),
+                y: dropY + (i * 20)
+            };
+        });
+        
+        onUpdateRootCoords(newRootCoords);
+
+        // Also update standard order logic for consistency, though absolute coords override it visually
+        const visualRoots = Object.entries(layoutData.nodePositions as Record<string, NodePos>)
+            .filter(([_, pos]) => pos.gen === 0)
+            .sort((a, b) => a[1].x - b[1].x);
+
+        let insertBeforeId: string | null = null;
+        for (const [id, pos] of visualRoots) {
+            if (dropX < pos.x + CARD_WIDTH / 2) {
+                insertBeforeId = id;
+                break;
+            }
+        }
+
+        const currentRootOrder = customOrder['roots'] ? [...customOrder['roots']] : [];
+        if (currentRootOrder.length === 0 && visualRoots.length > 0) {
+            visualRoots.forEach(([id]) => currentRootOrder.push(id));
+        }
+
+        const newRootOrder = [...currentRootOrder];
+        if (insertBeforeId) {
+            const idx = newRootOrder.indexOf(insertBeforeId);
+            if (idx !== -1) {
+                newRootOrder.splice(idx, 0, ...ids);
+            } else {
+                newRootOrder.push(...ids);
+            }
+        } else {
+            newRootOrder.push(...ids);
+        }
+
+        onUpdateCustomOrder({
+            ...customOrder,
+            'roots': newRootOrder
+        });
+
+        ids.forEach(id => onAddActiveChar(id));
+    };
+
     const renderLinks = () => {
         const links: React.ReactElement[] = [];
         const { nodePositions } = layoutData;
 
-        // 婚姻连线
+        // Marriage Links
         familyLinks.forEach(link => {
              if (link.type === 'marriage' && link.partners && link.partners.length === 2) {
                  const p1 = nodePositions[link.partners[0]];
@@ -452,7 +696,7 @@ const FamilyTree: React.FC<Props> = ({
              }
         });
 
-        // 亲子连线
+        // Parent-Child Links
         familyLinks.forEach(link => {
             if (link.type === 'parent_child' && link.child) {
                 const childPos = nodePositions[link.child];
@@ -488,243 +732,222 @@ const FamilyTree: React.FC<Props> = ({
         return links;
     };
 
+    const renderNode = (char: Character, pos: NodePos) => {
+        const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
+        const isHovered = hoveredCharId === char.id;
+        
+        // Check if dragging node is a sibling of this node
+        const isSiblingReorder = draggingCharId && draggingCharId !== char.id && getCommonParentKey(draggingCharId, char.id) !== null;
+        
+        return (
+            <foreignObject 
+                key={char.id} 
+                x={pos.x} y={pos.y} width={CARD_WIDTH} height={CARD_HEIGHT}
+                className="overflow-visible"
+            >
+                <div 
+                    className={`node-card relative w-full h-full rounded-xl border-2 bg-slate-800 shadow-xl transition-all group select-none ${isHovered ? 'z-50' : 'z-0'}`}
+                    style={{ borderColor: isHovered ? '#3b82f6' : '#1e293b' }}
+                    draggable
+                    onMouseDown={(e) => e.stopPropagation()} 
+                    onDragStart={(e) => {
+                        e.dataTransfer.setData("application/react-dnd-char-id", char.id);
+                        e.dataTransfer.effectAllowed = "move";
+                        setDraggingCharId(char.id);
+                    }}
+                    onDragEnd={() => setDraggingCharId(null)}
+                    onDragOver={(e) => { 
+                        e.preventDefault(); 
+                        setHoveredCharId(char.id); 
+                    }}
+                    onDragLeave={(e) => {
+                        // Crucial fix: Prevent flickering by checking if we are entering a child element (like the drop zones)
+                        if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+                        setHoveredCharId(null); 
+                        setDropTarget(null); 
+                    }}
+                    onDrop={(e) => {
+                         // If dropped on specific zones, handled by child divs.
+                         // If dropped here (on center), treat as smart drop/reorder
+                         if (!dropTarget) {
+                            handleSmartDrop(e, char.id);
+                         }
+                    }}
+                    onMouseEnter={() => setHoveredCharId(char.id)}
+                    onMouseLeave={() => setHoveredCharId(null)}
+                >
+                    {/* Content */}
+                    <div className="flex items-center gap-3 p-3 h-full relative z-10 pointer-events-none">
+                        <div className={`w-10 h-10 rounded-full bg-slate-900 border-2 overflow-hidden shrink-0 ${char.gender === 'F' ? 'border-pink-500/50' : char.gender === 'M' ? 'border-blue-500/50' : 'border-slate-500/50'}`}>
+                             {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover" /> : <User size={20} className="m-2 text-slate-500" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                            <div className="text-xs font-bold text-slate-200 truncate">{char.name}</div>
+                            <div className="text-[9px] text-slate-500 truncate">{char.isVirtual ? '占位节点' : (char.raw_info || char.note || '无描述')}</div>
+                        </div>
+                    </div>
+
+                    {/* Interactive overlay for Delete (Always visible on hover) */}
+                    {isHovered && !draggingCharId && (
+                        <button 
+                            onMouseDown={(e) => { e.stopPropagation(); onRemoveActiveChar(char.id); }}
+                            className="absolute top-1 right-1 p-1.5 text-slate-400 hover:text-red-400 bg-slate-800/80 rounded-full z-50 pointer-events-auto hover:bg-slate-700"
+                            title="从谱系图中移除"
+                        >
+                            <X size={12}/>
+                        </button>
+                    )}
+
+                    {/* Sibling Reorder Visual Feedback */}
+                    {isSiblingReorder && isHovered && !dropTarget && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-blue-600/20 rounded-xl z-20 pointer-events-none animate-pulse">
+                            <div className="bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded-full flex items-center gap-1 shadow-lg">
+                                <ArrowUpDown size={10} /> 交换顺序
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Drop Zones (Only visible when dragging another node) */}
+                    {draggingCharId && draggingCharId !== char.id && isHovered && (
+                        <>
+                            {/* Top: Add Parent */}
+                            <div 
+                                className={`absolute -top-4 left-0 right-0 h-4 flex items-center justify-center bg-blue-500/20 border-t-2 border-x-2 border-blue-500/50 rounded-t-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'parent' ? 'bg-blue-500/50' : ''}`}
+                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'parent' })}
+                                onDrop={(e) => handleDropOnPerson(e, char.id, 'parent')}
+                            >
+                                <ArrowUp size={10} className="text-blue-300"/>
+                            </div>
+                            
+                            {/* Bottom: Add Child */}
+                            <div 
+                                className={`absolute -bottom-4 left-0 right-0 h-4 flex items-center justify-center bg-green-500/20 border-b-2 border-x-2 border-green-500/50 rounded-b-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'child_single' ? 'bg-green-500/50' : ''}`}
+                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'child_single' })}
+                                onDrop={(e) => handleDropOnPerson(e, char.id, 'child_single')}
+                            >
+                                <ArrowDown size={10} className="text-green-300"/>
+                            </div>
+
+                            {/* Right: Add Spouse */}
+                            <div 
+                                className={`absolute top-0 -right-4 bottom-0 w-4 flex items-center justify-center bg-pink-500/20 border-y-2 border-r-2 border-pink-500/50 rounded-r-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'spouse' ? 'bg-pink-500/50' : ''}`}
+                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'spouse' })}
+                                onDrop={(e) => handleDropOnPerson(e, char.id, 'spouse')}
+                            >
+                                <Heart size={10} className="text-pink-300"/>
+                            </div>
+
+                             {/* Left: Add Sibling/Other */}
+                             <div 
+                                className={`absolute top-0 -left-4 bottom-0 w-4 flex items-center justify-center bg-purple-500/20 border-y-2 border-l-2 border-purple-500/50 rounded-l-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'other_relation' ? 'bg-purple-500/50' : ''}`}
+                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'other_relation' })}
+                                onDrop={(e) => handleDropOnPerson(e, char.id, 'other_relation')}
+                            >
+                                <ArrowLeftRight size={10} className="text-purple-300"/>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </foreignObject>
+        );
+    };
+
     const renderContent = () => (
-        <div className="w-full h-full relative bg-[#0f172a] overflow-hidden" ref={containerRef}>
+        <div 
+            className="w-full h-full relative bg-[#0f172a] overflow-hidden" 
+            ref={containerRef}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleCanvasDrop}
+        >
             <div className="absolute top-4 left-4 z-10 flex gap-2">
                 <button onClick={() => fitToView(true)} className="p-2 bg-slate-800 rounded-lg border border-slate-700 hover:bg-slate-700 text-slate-300"><Crosshair size={18}/></button>
                 <div className="flex bg-slate-800 rounded-lg border border-slate-700 p-1">
                     <input 
                         className="bg-transparent text-sm px-2 py-1 outline-none text-white w-40"
-                        placeholder="搜索家族成员..."
+                        placeholder="搜索谱系成员..."
                         value={searchTerm}
-                        onChange={e => setSearchTerm(e.target.value)}
+                        onChange={(e) => setSearchTerm(e.target.value)}
                     />
+                    <Search size={16} className="text-slate-500 m-1.5" />
                 </div>
             </div>
-            
-            <svg ref={svgRefCallback} className="w-full h-full cursor-grab active:cursor-grabbing">
-                <g transform={`translate(${transform.x},${transform.y}) scale(${transform.k})`}>
-                    {renderLinks()}
-                    {Object.entries(layoutData.nodePositions).map(([id, pos]) => {
-                        const char = characters.find(c => c.id === id);
-                        if (!char) return null;
-                        const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
-                        const isHovered = hoveredCharId === id;
-                        
-                        return (
-                            <foreignObject key={id} x={pos.x} y={pos.y} width={CARD_WIDTH} height={CARD_HEIGHT}>
-                                <div 
-                                    className={`w-full h-full bg-slate-800 rounded-xl border-2 transition-all flex items-center p-2 gap-2 relative group 
-                                        ${isHovered ? 'border-blue-400 shadow-lg shadow-blue-500/20' : 'border-slate-600'}
-                                    `}
-                                    onMouseEnter={() => setHoveredCharId(id)}
-                                    onMouseLeave={() => setHoveredCharId(null)}
-                                    draggable
-                                    onDragStart={(e) => {
-                                        e.dataTransfer.setData("application/react-dnd-char-id", id);
-                                    }}
-                                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                    onDrop={(e) => handleDropOnPerson(e, id, 'parent')}
-                                >
-                                    <div className="absolute inset-0 z-20 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto">
-                                        <div 
-                                            className="absolute right-0 top-0 bottom-0 w-6 bg-pink-500/20 hover:bg-pink-500/40 cursor-copy"
-                                            title="拖拽此处建立婚姻"
-                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'spouse'}); }}
-                                            onDragLeave={() => setDropTarget(null)}
-                                            onDrop={(e) => handleDropOnPerson(e, id, 'spouse')}
-                                        />
-                                        <div 
-                                            className="absolute bottom-0 left-0 right-0 h-6 bg-blue-500/20 hover:bg-blue-500/40 cursor-copy"
-                                            title="拖拽此处添加子女 (单亲)"
-                                            onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDropTarget({id, zone: 'child_single'}); }}
-                                            onDragLeave={() => setDropTarget(null)}
-                                            onDrop={(e) => handleDropOnPerson(e, id, 'child_single')}
-                                        />
-                                    </div>
 
-                                    <div className="w-10 h-10 rounded-full bg-slate-900 overflow-hidden shrink-0 border border-slate-500">
-                                        {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover" /> : <User size={20} className="text-slate-500 m-2" />}
-                                    </div>
-                                    <div className="flex flex-col min-w-0">
-                                        <span className="text-xs font-bold text-slate-200 truncate">{char.name}</span>
-                                        <span className="text-[10px] text-slate-500 truncate">{char.raw_info || '无信息'}</span>
-                                    </div>
-
-                                    <button 
-                                        onClick={(e) => { e.stopPropagation(); onRemoveActiveChar(id); }}
-                                        className="absolute -top-2 -right-2 p-1 bg-slate-700 hover:bg-red-500 rounded-full text-white opacity-0 group-hover:opacity-100 transition-all shadow-md z-30"
-                                    >
-                                        <X size={10} />
-                                    </button>
-                                </div>
-                            </foreignObject>
-                        );
-                    })}
-                </g>
-            </svg>
-
-            <div className="absolute bottom-6 right-6 flex gap-2">
-                 <button onClick={() => setIsAddingVirtual(true)} className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl shadow-lg font-bold text-xs transition-all">
-                    <UserRoundPlus size={14} /> 添加虚拟人物
-                 </button>
-                 <button onClick={() => setIsGuideOpen(!isGuideOpen)} className="p-2 bg-slate-800 border border-slate-700 text-slate-400 hover:text-white rounded-xl shadow-lg">
-                    <HelpCircle size={18} />
-                 </button>
-            </div>
-
-            {/* Virtual Char Modal */}
-            {isAddingVirtual && (
-                <div className="absolute inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-                    <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-2xl w-80 animate-in zoom-in-95">
-                        <h3 className="text-sm font-bold text-white mb-4">添加虚拟占位人物 (如: 未知生父)</h3>
+            <div className="absolute top-4 right-4 z-10 flex gap-2">
+                {isAddingVirtual ? (
+                    <div className="flex bg-slate-800 rounded-lg border border-blue-500 p-1 animate-in slide-in-from-right">
                         <input 
                             autoFocus
+                            className="bg-transparent text-sm px-2 py-1 outline-none text-white w-32"
+                            placeholder="输入名称..."
                             value={virtualName}
                             onChange={(e) => setVirtualName(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleConfirmVirtual()}
-                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2 text-white text-sm mb-4 outline-none focus:ring-1 focus:ring-indigo-500"
-                            placeholder="输入名称..."
                         />
-                        <div className="flex gap-2">
-                            <button onClick={() => setIsAddingVirtual(false)} className="flex-1 py-2 text-xs font-bold text-slate-400 hover:bg-slate-700 rounded-lg">取消</button>
-                            <button onClick={handleConfirmVirtual} className="flex-1 py-2 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-500">确认</button>
-                        </div>
+                        <button onClick={handleConfirmVirtual} className="p-1 text-blue-400 hover:text-white"><Check size={16}/></button>
+                        <button onClick={() => setIsAddingVirtual(false)} className="p-1 text-slate-500 hover:text-white"><X size={16}/></button>
                     </div>
-                </div>
-            )}
-            
-            {/* Guide Modal */}
+                ) : (
+                    <button onClick={() => setIsAddingVirtual(true)} className="flex items-center gap-2 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold shadow-lg transition-all">
+                        <UserRoundPlus size={14} /> 添加虚拟节点
+                    </button>
+                )}
+                <button onClick={() => setIsGuideOpen(!isGuideOpen)} className={`p-2 rounded-lg border transition-all ${isGuideOpen ? 'bg-slate-700 border-slate-500 text-white' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+                    <HelpCircle size={18} />
+                </button>
+                <button onClick={() => setIsPoppedOut(!isPoppedOut)} className="p-2 bg-slate-800 rounded-lg border border-slate-700 hover:bg-slate-700 text-slate-300">
+                    {isPoppedOut ? <Minimize size={18} /> : <Maximize size={18} />}
+                </button>
+            </div>
+
             {isGuideOpen && (
-                <div className="fixed inset-0 z-[1100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-                    <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-md shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center mb-4 pb-4 border-b border-slate-700">
-                            <h3 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                                <HelpCircle size={18} className="text-indigo-400" /> 谱系图操作指南
-                            </h3>
-                            <button onClick={() => setIsGuideOpen(false)} className="text-slate-400 hover:text-white transition-colors">
-                                <X size={20} />
-                            </button>
-                        </div>
-                        
-                        <div className="space-y-6 text-xs text-slate-300">
-                            {/* Section 1 */}
-                            <div className="flex gap-4">
-                                <div className="p-3 bg-slate-900 rounded-xl h-fit border border-slate-700 shrink-0">
-                                    <GitBranch size={20} className="text-pink-400" />
-                                </div>
-                                <div className="space-y-3">
-                                    <h4 className="font-bold text-white text-sm">如何建立亲属关系?</h4>
-                                    <p className="opacity-70 leading-relaxed">
-                                        直接拖拽人物头像到目标卡片的<strong className="text-white">特定感应区</strong>：
-                                    </p>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
-                                            <div className="w-6 h-6 bg-pink-500/20 rounded flex items-center justify-center text-pink-400"><Heart size={12}/></div>
-                                            <span>左右侧边: <span className="text-pink-400 font-bold">配偶</span></span>
-                                        </div>
-                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
-                                            <div className="w-6 h-6 bg-indigo-500/20 rounded flex items-center justify-center text-indigo-400"><ArrowDown size={12}/></div>
-                                            <span>顶部区域: <span className="text-indigo-400 font-bold">父母</span></span>
-                                        </div>
-                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
-                                            <div className="w-6 h-6 bg-blue-500/20 rounded flex items-center justify-center text-blue-400"><ArrowUp size={12}/></div>
-                                            <span>底部区域: <span className="text-blue-400 font-bold">子女(单亲)</span></span>
-                                        </div>
-                                        <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-700 flex items-center gap-2">
-                                            <div className="w-6 h-6 bg-white/10 rounded flex items-center justify-center text-white"><Heart size={10}/></div>
-                                            <span>连线中心: <span className="text-white font-bold">共同子女</span></span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Section 2 */}
-                            <div className="flex gap-4 border-t border-slate-700 pt-4">
-                                <div className="p-3 bg-slate-900 rounded-xl h-fit border border-slate-700 shrink-0">
-                                    <UserRoundPlus size={20} className="text-indigo-400" />
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-white text-sm mb-1">缺失关键人物?</h4>
-                                    <p className="opacity-70 leading-relaxed mb-2">
-                                        使用右下角的 <span className="text-indigo-400 font-bold">添加虚拟人物</span> 功能创建占位符（如：未知生父、初代家主），以完善家族树结构。
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="mt-6 pt-4 border-t border-slate-700">
-                            <button onClick={() => setIsGuideOpen(false)} className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-black shadow-lg transition-all active:scale-95">
-                                我明白了
-                            </button>
-                        </div>
-                    </div>
+                <div className="absolute top-16 right-4 z-20 w-64 bg-slate-800/90 backdrop-blur border border-slate-600 rounded-xl p-4 shadow-2xl text-xs space-y-3 animate-in fade-in slide-in-from-top-2">
+                    <h4 className="font-bold text-white flex items-center gap-2"><GitBranch size={14} className="text-blue-400"/> 操作指南</h4>
+                    <ul className="space-y-2 text-slate-300 list-disc pl-4">
+                        <li><strong className="text-blue-300">拖拽至背景</strong>：添加为独立节点 (新家族/根)</li>
+                        <li><strong className="text-blue-300">拖拽至卡片中心</strong>：调整同辈顺序 (Sibling Reorder)</li>
+                        <li><strong className="text-pink-300">拖至右侧边缘</strong>：添加配偶 (Spouse)</li>
+                        <li><strong className="text-green-300">拖至底部边缘</strong>：添加子女 (Child)</li>
+                        <li><strong className="text-blue-300">拖至顶部边缘</strong>：添加父母 (Parent)</li>
+                    </ul>
                 </div>
             )}
+
+             <svg 
+                ref={svgRefCallback}
+                width="100%" 
+                height="100%" 
+                className="cursor-move touch-none"
+             >
+                <g transform={`translate(${transform.x},${transform.y}) scale(${transform.k})`}>
+                    {renderLinks()}
+                    {Object.entries(layoutData.nodePositions as Record<string, NodePos>).map(([id, pos]) => {
+                         const char = characters.find(c => c.id === id);
+                         if (!char) return null;
+                         if (searchTerm && !char.name.toLowerCase().includes(searchTerm.toLowerCase())) {
+                             return <g key={id} style={{opacity: 0.2}}>{renderNode(char, pos)}</g>;
+                         }
+                         return renderNode(char, pos);
+                    })}
+                </g>
+             </svg>
         </div>
     );
 
-    const renderSidebar = () => (
-        <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col shrink-0">
-            <div className="p-3 border-b border-slate-800">
-                <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={14} />
-                    <input 
-                        className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-xs text-white outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-slate-500"
-                        placeholder="搜索候选人物..."
-                        value={sidebarSearch}
-                        onChange={e => setSidebarSearch(e.target.value)}
-                    />
-                </div>
-            </div>
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
-                {characters
-                    .filter(c => !c.isVirtual && (sidebarSearch === "" || c.name.toLowerCase().includes(sidebarSearch.toLowerCase())))
-                    .map(char => {
-                        const isActive = activeCharIds.includes(char.id);
-                        const portraitUrl = char.imageId ? blobUrls[char.imageId] : null;
-                        return (
-                            <div 
-                                key={char.id}
-                                draggable={!isActive}
-                                onDragStart={(e) => {
-                                    if (isActive) return;
-                                    e.dataTransfer.setData("application/react-dnd-char-id", char.id);
-                                }}
-                                className={`flex items-center gap-3 p-2.5 rounded-xl border transition-all ${isActive ? 'bg-slate-800/50 border-slate-800 opacity-50 grayscale cursor-default' : 'bg-slate-800 border-slate-700 hover:border-blue-500 cursor-grab active:cursor-grabbing'}`}
-                            >
-                                <div className="w-8 h-8 rounded-full bg-slate-950 overflow-hidden shrink-0 border border-slate-600 shadow-sm">
-                                    {portraitUrl ? <img src={portraitUrl} className="w-full h-full object-cover"/> : <User size={16} className="text-slate-500 m-1.5"/>}
-                                </div>
-                                <span className="text-xs font-bold text-slate-300 truncate flex-1">{char.name}</span>
-                                {isActive && <Check size={14} className="text-blue-500"/>}
-                            </div>
-                        )
-                    })
-                }
-            </div>
-        </div>
-    );
-
-    return isPoppedOut ? (
-        <PortalWindow onClose={() => setIsPoppedOut(false)}>
-             <div className="w-full h-full flex flex-col bg-[#0f172a]">
-                 <div className="h-14 bg-slate-900 border-b border-slate-800 flex items-center px-4 justify-between shrink-0">
-                     <span className="font-bold text-white flex items-center gap-2"><GitBranch size={16}/> 家族谱系图 (全屏模式)</span>
-                     <button onClick={() => setIsPoppedOut(false)} className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white"><Minimize size={18}/></button>
-                 </div>
-                 <div className="flex-1 flex overflow-hidden">
-                    {renderSidebar()}
-                    <div className="flex-1 overflow-hidden relative">
-                        {renderContent()}
+    if (isPoppedOut) {
+        return (
+            <PortalWindow onClose={() => setIsPoppedOut(false)}>
+                <div className="w-full h-full flex flex-col">
+                    <div className="h-full relative">
+                       {renderContent()}
                     </div>
-                 </div>
-             </div>
-        </PortalWindow>
-    ) : (
-        <div className="w-full h-[600px] border border-slate-700 rounded-xl overflow-hidden relative shadow-xl flex flex-col">
-             {renderContent()}
-             <button onClick={() => setIsPoppedOut(true)} className="absolute top-4 right-4 z-20 p-2 bg-slate-800/80 backdrop-blur border border-slate-600 rounded-lg text-slate-300 hover:text-white shadow-lg"><Maximize size={16}/></button>
+                </div>
+            </PortalWindow>
+        );
+    }
+
+    return (
+        <div className="h-[650px] bg-slate-900 border border-slate-700 rounded-xl overflow-hidden relative shadow-inner">
+            {renderContent()}
         </div>
     );
 };
