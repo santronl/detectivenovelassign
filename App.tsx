@@ -852,7 +852,7 @@ const App: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button onClick={() => { setEditingClue(null); setIsClueModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-blue-400 rounded transition-colors"><Info size={12} /></button>
+          <button onClick={() => { setEditingClue(clue); setIsClueModalOpen(true); }} className="p-1.5 text-slate-500 hover:text-blue-400 rounded transition-colors"><Info size={12} /></button>
           <button onClick={() => setClueToDeleteId(clue.id)} className="p-1.5 text-slate-500 hover:text-red-400 rounded transition-colors"><Trash2 size={12}/></button>
         </div>
 
