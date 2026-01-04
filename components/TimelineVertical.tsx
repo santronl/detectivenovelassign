@@ -1,6 +1,7 @@
+
 import React, { useState } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users, Edit3 } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -12,6 +13,7 @@ interface Props {
   locations: Location[];
   timePoints: TimePoint[];
   onAddSegment: (seg: TimelineSegment) => void;
+  onUpdateSegment: (seg: TimelineSegment) => void;
   onRemoveSegment: (id: string) => void;
   onUpdateActiveChars: (ids: string[]) => void;
   onUpdateSlotCount: (count: number) => void;
@@ -36,6 +38,7 @@ const TimelineVertical: React.FC<Props> = ({
   locations,
   timePoints,
   onAddSegment,
+  onUpdateSegment,
   onRemoveSegment,
   onUpdateActiveChars,
   onUpdateSlotCount,
@@ -52,6 +55,7 @@ const TimelineVertical: React.FC<Props> = ({
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [isPeriodModalOpen, setIsPeriodModalOpen] = useState(false);
   const [newPeriodLabel, setNewPeriodLabel] = useState("");
+  const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(false);
 
   // Filter out virtual characters for display logic
@@ -87,34 +91,56 @@ const TimelineVertical: React.FC<Props> = ({
 
   const handleSaveSegment = () => {
     if (editingSeg && editingSeg.characterId && editingSeg.locationName) {
-      onAddSegment(editingSeg as TimelineSegment);
-      if (editingSeg.timeLabel) {
-        const hasExisting = periods.some(p => p.startSlot === editingSeg.startSlot && p.endSlot === editingSeg.endSlot);
-        if (!hasExisting) {
-            onUpdatePeriods([...periods, {
-                id: crypto.randomUUID(),
-                label: editingSeg.timeLabel,
-                startSlot: editingSeg.startSlot!,
-                endSlot: editingSeg.endSlot!,
-                color: editingSeg.color
-            }]);
-        }
+      if (segments.some(s => s.id === editingSeg.id)) {
+          onUpdateSegment(editingSeg as TimelineSegment);
+      } else {
+          onAddSegment(editingSeg as TimelineSegment);
+          if (editingSeg.timeLabel) {
+            const hasExisting = periods.some(p => p.startSlot === editingSeg.startSlot && p.endSlot === editingSeg.endSlot);
+            if (!hasExisting) {
+                onUpdatePeriods([...periods, {
+                    id: crypto.randomUUID(),
+                    label: editingSeg.timeLabel,
+                    startSlot: editingSeg.startSlot!,
+                    endSlot: editingSeg.endSlot!,
+                    color: editingSeg.color
+                }]);
+            }
+          }
       }
       setIsModalOpen(false);
       setEditingSeg(null);
     }
   };
 
+  const handleEditPeriod = (p: TimePeriodLabel) => {
+      setEditingPeriodId(p.id);
+      setNewPeriodLabel(p.label);
+      setEditingSeg({ startSlot: p.startSlot, endSlot: p.endSlot } as any);
+      setIsPeriodModalOpen(true);
+  };
+
   const handleSavePeriod = () => {
       if (newPeriodLabel.trim() && editingSeg) {
-          onUpdatePeriods([...periods, {
-              id: crypto.randomUUID(),
-              label: newPeriodLabel.trim(),
-              startSlot: editingSeg.startSlot!,
-              endSlot: editingSeg.endSlot!,
-              color: COLORS[Math.floor(Math.random() * COLORS.length)]
-          }]);
+          if (editingPeriodId) {
+              onUpdatePeriods(periods.map(p => p.id === editingPeriodId ? {
+                  ...p,
+                  label: newPeriodLabel.trim(),
+                  startSlot: editingSeg.startSlot!,
+                  endSlot: editingSeg.endSlot!
+              } : p));
+          } else {
+              onUpdatePeriods([...periods, {
+                  id: crypto.randomUUID(),
+                  label: newPeriodLabel.trim(),
+                  startSlot: editingSeg.startSlot!,
+                  endSlot: editingSeg.endSlot!,
+                  color: COLORS[Math.floor(Math.random() * COLORS.length)]
+              }]);
+          }
+          
           setNewPeriodLabel("");
+          setEditingPeriodId(null);
           setIsPeriodModalOpen(false);
           setEditingSeg(null);
       }
@@ -128,6 +154,8 @@ const TimelineVertical: React.FC<Props> = ({
       const end = Math.max(selectionStart, i) + 1;
       setSelectionStart(null);
       setShowGuide(false);
+      setEditingPeriodId(null);
+      setNewPeriodLabel("");
       setEditingSeg({ startSlot: start, endSlot: end } as any);
       setIsPeriodModalOpen(true);
     }
@@ -266,17 +294,28 @@ const TimelineVertical: React.FC<Props> = ({
                                 backgroundColor: `${p.color || '#3b82f6'}15`,
                                 borderColor: p.color || '#3b82f6'
                             }}
-                            className="absolute left-1 right-1 border-l-2 rounded p-1 overflow-hidden group/p shadow-md z-10"
+                            className="absolute left-1 right-1 border-l-2 rounded p-1 overflow-hidden group/p shadow-md z-10 transition-all hover:bg-slate-800"
+                            onDoubleClick={(e) => { e.stopPropagation(); handleEditPeriod(p); }}
                         >
-                            <div className="text-[9px] font-bold text-slate-300 leading-tight line-clamp-3">
+                            <div className="text-[9px] font-bold text-slate-300 leading-tight line-clamp-3 select-none">
                                 {p.label}
                             </div>
-                            <button 
-                                onClick={() => onUpdatePeriods(periods.filter(x => x.id !== p.id))}
-                                className="absolute top-0 right-0 p-0.5 opacity-0 group-hover/p:opacity-100 text-red-500 hover:bg-red-500/20 rounded transition-opacity"
-                            >
-                                <X size={8}/>
-                            </button>
+                            <div className="absolute top-0 right-0 flex gap-0.5 opacity-0 group-hover/p:opacity-100 transition-opacity bg-black/50 rounded-bl backdrop-blur-sm">
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); handleEditPeriod(p); }}
+                                    className="p-1 text-blue-400 hover:text-white hover:bg-blue-600 rounded transition-colors"
+                                    title="编辑"
+                                >
+                                    <Edit3 size={8}/>
+                                </button>
+                                <button 
+                                    onClick={(e) => { e.stopPropagation(); onUpdatePeriods(periods.filter(x => x.id !== p.id)); }}
+                                    className="p-1 text-red-500 hover:text-white hover:bg-red-600 rounded transition-colors"
+                                    title="删除"
+                                >
+                                    <X size={8}/>
+                                </button>
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -344,7 +383,8 @@ const TimelineVertical: React.FC<Props> = ({
                           backgroundColor: `${seg.color}20`,
                           borderColor: seg.color
                         }}
-                        className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-3 overflow-hidden flex flex-col justify-center border border-slate-700/50 backdrop-blur-sm"
+                        onClick={(e) => { e.stopPropagation(); setEditingSeg(seg); setIsModalOpen(true); }}
+                        className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-3 overflow-hidden flex flex-col justify-center border border-slate-700/50 backdrop-blur-sm cursor-pointer"
                       >
                         <div className="flex items-start justify-between">
                           <div className="flex flex-col gap-0.5 min-w-0">
@@ -362,7 +402,7 @@ const TimelineVertical: React.FC<Props> = ({
                                 </div>
                               )}
                           </div>
-                          <button onClick={() => onRemoveSegment(seg.id)} className="opacity-0 group-hover/seg:opacity-100 p-1.5 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={12} /></button>
+                          <button onClick={(e) => { e.stopPropagation(); onRemoveSegment(seg.id); }} className="opacity-0 group-hover/seg:opacity-100 p-1.5 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={12} /></button>
                         </div>
                       </div>
                     );
@@ -378,7 +418,7 @@ const TimelineVertical: React.FC<Props> = ({
         <div className="fixed inset-0 z-[500] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-slate-800 rounded-3xl border border-slate-700 shadow-2xl w-full max-w-lg overflow-hidden animate-in zoom-in-95">
             <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-900/50">
-              <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />轨迹实录</h3>
+              <h3 className="font-bold text-white flex items-center gap-3"><Clock size={20} className="text-blue-400" />{editingSeg.id && segments.some(s => s.id === editingSeg.id) ? '编辑轨迹' : '轨迹实录'}</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-white p-2 hover:bg-slate-700 rounded-full transition-colors"><X size={24}/></button>
             </div>
             <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
@@ -454,13 +494,35 @@ const TimelineVertical: React.FC<Props> = ({
           <div className="fixed inset-0 z-[550] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
               <div className="bg-slate-800 border border-slate-700 rounded-2xl p-8 w-full max-w-sm shadow-2xl animate-in zoom-in-95">
                   <h3 className="text-lg font-black text-white mb-4 uppercase tracking-widest text-center flex items-center justify-center gap-2">
-                    <Calendar className="text-amber-500" /> 备注时间段
+                    <Calendar className="text-amber-500" /> {editingPeriodId ? '编辑时间段' : '备注时间段'}
                   </h3>
-                  <p className="text-[10px] text-slate-500 text-center mb-6 font-bold uppercase tracking-tighter">当前跨度: G{(editingSeg?.startSlot || 0) + 1} - G{editingSeg?.endSlot}</p>
+                  
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                      <div className="space-y-1">
+                          <label className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">起始格 (Start)</label>
+                          <input 
+                              type="number" 
+                              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-amber-500 font-mono text-center"
+                              value={(editingSeg?.startSlot || 0) + 1}
+                              onChange={(e) => setEditingSeg(prev => prev ? ({ ...prev, startSlot: Math.max(0, (parseInt(e.target.value) || 1) - 1) }) : null)}
+                          />
+                      </div>
+                      <div className="space-y-1">
+                          <label className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">终止格 (End)</label>
+                          <input 
+                              type="number" 
+                              className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-amber-500 font-mono text-center"
+                              value={editingSeg?.endSlot || 0}
+                              onChange={(e) => setEditingSeg(prev => prev ? ({ ...prev, endSlot: Math.max((prev.startSlot || 0) + 1, parseInt(e.target.value) || 1) }) : null)}
+                          />
+                      </div>
+                  </div>
+
                   <input autoFocus value={newPeriodLabel} onChange={(e) => setNewPeriodLabel(e.target.value)} placeholder="如: 第一起命案发生前..." className="w-full bg-slate-900 border border-slate-700 rounded-xl p-4 text-sm text-white mb-6 focus:ring-2 focus:ring-amber-500 outline-none shadow-inner" onKeyDown={(e) => e.key === 'Enter' && handleSavePeriod()} />
+                  
                   <div className="flex gap-3">
-                      <button onClick={() => { setIsPeriodModalOpen(false); setSelectionStart(null); }} className="flex-1 py-3 text-sm text-slate-400 font-bold border border-slate-700 rounded-xl hover:bg-slate-700 transition-colors">取消</button>
-                      <button onClick={handleSavePeriod} className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-black shadow-lg shadow-amber-900/20 active:scale-95 transition-all">确认保存</button>
+                      <button onClick={() => { setIsPeriodModalOpen(false); setSelectionStart(null); setEditingPeriodId(null); }} className="flex-1 py-3 text-sm text-slate-400 font-bold border border-slate-700 rounded-xl hover:bg-slate-700 transition-colors">取消</button>
+                      <button onClick={handleSavePeriod} className="flex-1 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-sm font-black shadow-lg shadow-amber-900/20 active:scale-95 transition-all">保存</button>
                   </div>
               </div>
           </div>
