@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as d3 from 'd3';
 import { Character, FamilyLink } from '../types';
-import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, Crosshair, ArrowDown, ArrowUp, Check, Search, ArrowLeftRight, ArrowUpDown } from 'lucide-react';
+import { User, Heart, X, Minimize, Maximize, GitBranch, UserRoundPlus, HelpCircle, ArrowDown, ArrowUp, Check, Search, ArrowUpDown, MousePointer2 } from 'lucide-react';
 import PortalWindow from './PortalWindow';
 
 interface Props {
@@ -45,7 +45,7 @@ const FamilyTree: React.FC<Props> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const [transform, setTransform] = useState<{x: number, y: number, k: number}>({ x: 0, y: 0, k: 0.8 });
     const [isPoppedOut, setIsPoppedOut] = useState(false);
-    const [dropTarget, setDropTarget] = useState<{ id: string, zone: 'parent' | 'spouse_left' | 'spouse_right' | 'child_single' | 'marriage_joint' | 'other_relation' } | null>(null);
+    const [dropTarget, setDropTarget] = useState<{ id: string, zone: 'parent' | 'spouse_left' | 'spouse_right' | 'child_single' | 'marriage_joint' } | null>(null);
     const [hoveredCharId, setHoveredCharId] = useState<string | null>(null);
     const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
     const [draggingCharId, setDraggingCharId] = useState<string | null>(null);
@@ -683,7 +683,7 @@ const FamilyTree: React.FC<Props> = ({
         setIsAddingVirtual(false);
     };
 
-    const handleDropOnPerson = (e: React.DragEvent, targetId: string, zone: 'parent' | 'spouse_left' | 'spouse_right' | 'child_single' | 'other_relation') => {
+    const handleDropOnPerson = (e: React.DragEvent, targetId: string, zone: 'parent' | 'spouse_left' | 'spouse_right' | 'child_single' | 'marriage_joint') => {
         e.preventDefault(); e.stopPropagation();
         setDropTarget(null);
         setHoveredCharId(null);
@@ -743,8 +743,6 @@ const FamilyTree: React.FC<Props> = ({
                 [`spouses_${targetId}`]: newOrder
             });
 
-        } else if (zone === 'other_relation') {
-            onAddFamilyLink({ id: crypto.randomUUID(), type: 'other_same_level', partners: [targetId, sourceId], label: '自定义关系' });
         } else if (zone === 'parent') {
             onAddFamilyLink({ id: crypto.randomUUID(), type: 'parent_child', parents: [sourceId], child: targetId });
         } else if (zone === 'child_single') {
@@ -1124,16 +1122,6 @@ const FamilyTree: React.FC<Props> = ({
                             >
                                 <Heart size={10} className="text-pink-300"/>
                             </div>
-
-                             {/* Top-Left Corner: Add Sibling/Other (Moved from full left edge to corner) */}
-                             <div 
-                                className={`absolute -top-4 -left-4 w-6 h-6 flex items-center justify-center bg-purple-500/20 border-t-2 border-l-2 border-purple-500/50 rounded-tl-lg transition-colors z-50 cursor-pointer ${dropTarget?.zone === 'other_relation' ? 'bg-purple-500/50' : ''}`}
-                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'other_relation' })}
-                                onDrop={(e) => handleDropOnPerson(e, char.id, 'other_relation')}
-                                title="添加同辈/其他关系"
-                            >
-                                <ArrowLeftRight size={10} className="text-purple-300"/>
-                            </div>
                         </>
                     )}
                 </div>
@@ -1149,7 +1137,6 @@ const FamilyTree: React.FC<Props> = ({
             onDrop={handleCanvasDrop}
         >
             <div className="absolute top-4 left-4 z-10 flex gap-2">
-                <button onClick={() => fitToView(true)} className="p-2 bg-slate-800 rounded-lg border border-slate-700 hover:bg-slate-700 text-slate-300"><Crosshair size={18}/></button>
                 <div className="flex bg-slate-800 rounded-lg border border-slate-700 p-1">
                     <input 
                         className="bg-transparent text-sm px-2 py-1 outline-none text-white w-40"
@@ -1189,15 +1176,64 @@ const FamilyTree: React.FC<Props> = ({
             </div>
 
             {isGuideOpen && (
-                <div className="absolute top-16 right-4 z-20 w-64 bg-slate-800/90 backdrop-blur border border-slate-600 rounded-xl p-4 shadow-2xl text-xs space-y-3 animate-in fade-in slide-in-from-top-2">
-                    <h4 className="font-bold text-white flex items-center gap-2"><GitBranch size={14} className="text-blue-400"/> 操作指南</h4>
-                    <ul className="space-y-2 text-slate-300 list-disc pl-4">
-                        <li><strong className="text-blue-300">拖拽至背景</strong>：添加为独立节点 (新家族/根)</li>
-                        <li><strong className="text-blue-300">拖拽至卡片中心</strong>：调整同辈顺序 (Sibling Reorder)</li>
-                        <li><strong className="text-pink-300">拖至左/右侧边缘</strong>：添加配偶 (Spouse) - 左侧放置于左，右侧放置于右</li>
-                        <li><strong className="text-green-300">拖至底部边缘</strong>：添加子女 (Child)</li>
-                        <li><strong className="text-blue-300">拖至顶部边缘</strong>：添加父母 (Parent)</li>
-                    </ul>
+                <div className="absolute top-16 right-4 z-20 w-80 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-xl shadow-2xl text-xs animate-in fade-in slide-in-from-top-2 overflow-hidden">
+                    <div className="p-4 border-b border-slate-700 bg-slate-800/50 flex justify-between items-center">
+                        <h4 className="font-bold text-white flex items-center gap-2"><GitBranch size={14} className="text-blue-400"/> 谱系图操作指南</h4>
+                        <button onClick={() => setIsGuideOpen(false)} className="text-slate-500 hover:text-white"><X size={14}/></button>
+                    </div>
+                    <div className="p-4 space-y-4 max-h-[80vh] overflow-y-auto custom-scrollbar">
+                        
+                        <div className="space-y-2">
+                            <h5 className="font-bold text-indigo-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wider"><MousePointer2 size={12}/> 基础交互</h5>
+                            <div className="bg-slate-800/50 rounded-lg p-2.5 space-y-2 border border-slate-700/50">
+                                <p className="text-slate-300 leading-relaxed">• <span className="text-white font-bold">缩放/平移</span>：使用鼠标滚轮缩放，按住左键拖拽画布平移。</p>
+                                <p className="text-slate-300 leading-relaxed">• <span className="text-white font-bold">添加独立节点</span>：从左侧列表拖拽人物至 <span className="text-slate-400 italic">空白背景</span>。</p>
+                                <p className="text-slate-300 leading-relaxed">• <span className="text-white font-bold">移除节点</span>：悬停在人物卡片上，点击右上角的 <span className="text-red-400">X</span> 按钮。</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <h5 className="font-bold text-pink-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wider"><Heart size={12}/> 建立关系 (拖拽人物至卡片)</h5>
+                            <div className="grid grid-cols-2 gap-2">
+                                <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
+                                    <div className="text-pink-300 font-bold mb-1 flex items-center gap-1"><ArrowUp size={10}/> 父母</div>
+                                    <div className="text-slate-400 scale-90 origin-top-left">拖至卡片<br/>顶部边缘</div>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50">
+                                    <div className="text-green-300 font-bold mb-1 flex items-center gap-1"><ArrowDown size={10}/> 子女</div>
+                                    <div className="text-slate-400 scale-90 origin-top-left">拖至卡片<br/>底部边缘</div>
+                                </div>
+                                <div className="bg-slate-800/50 rounded-lg p-2 border border-slate-700/50 col-span-2">
+                                    <div className="text-indigo-300 font-bold mb-1 flex items-center gap-1"><Heart size={10}/> 配偶 (左右位)</div>
+                                    <div className="text-slate-400 scale-90 origin-top-left">拖至卡片<span className="text-white">左侧边缘</span>(置于左) 或 <span className="text-white">右侧边缘</span>(置于右)。</div>
+                                </div>
+                            </div>
+                        </div>
+
+                         <div className="space-y-2">
+                            <h5 className="font-bold text-amber-400 flex items-center gap-1.5 text-[11px] uppercase tracking-wider"><ArrowUpDown size={12}/> 高级操作</h5>
+                            <ul className="space-y-2 text-slate-300 pl-1">
+                                <li className="flex gap-2 text-[11px] leading-relaxed">
+                                    <span className="shrink-0 text-amber-500">•</span>
+                                    <span>
+                                        <strong className="text-white">同辈排序</strong>：将人物拖拽至同父母兄弟姐妹的<span className="text-amber-300">卡片中心</span>，可插入或交换位置。
+                                    </span>
+                                </li>
+                                <li className="flex gap-2 text-[11px] leading-relaxed">
+                                    <span className="shrink-0 text-amber-500">•</span>
+                                    <span>
+                                        <strong className="text-white">共同子女</strong>：将人物拖拽至两名配偶中间的<span className="text-pink-400">粉色连接点</span>上。
+                                    </span>
+                                </li>
+                                <li className="flex gap-2 text-[11px] leading-relaxed">
+                                    <span className="shrink-0 text-amber-500">•</span>
+                                    <span>
+                                        <strong className="text-white">虚拟节点</strong>：点击右上角“添加虚拟节点”可创建非剧情人物占位（如：未提及姓名的先祖）。
+                                    </span>
+                                </li>
+                            </ul>
+                        </div>
+                    </div>
                 </div>
             )}
 
