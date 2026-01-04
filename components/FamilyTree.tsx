@@ -31,6 +31,7 @@ const COUSIN_GAP = 80;
 const VERTICAL_SPACING = 200;
 
 type NodePos = { x: number, y: number, gen: number };
+type SubtreeStats = { width: number; lBound: number; rBound: number };
 
 const FamilyTree: React.FC<Props> = ({ 
     characters, activeCharIds, familyLinks, customOrder, rootCoords, blobUrls,
@@ -45,9 +46,9 @@ const FamilyTree: React.FC<Props> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const [transform, setTransform] = useState<{x: number, y: number, k: number}>({ x: 0, y: 0, k: 0.8 });
     const [isPoppedOut, setIsPoppedOut] = useState(false);
-    const [dropTarget, setDropTarget] = useState<{ id: string, zone: 'parent' | 'spouse' | 'child_single' | 'marriage_joint' | 'other_relation' } | null>(null);
+    const [dropTarget, setDropTarget] = useState<{ id: string, zone: 'parent' | 'spouse_left' | 'spouse_right' | 'child_single' | 'marriage_joint' | 'other_relation' } | null>(null);
     const [hoveredCharId, setHoveredCharId] = useState<string | null>(null);
-    const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null); // New: Track drag over from external sources
+    const [dragOverNodeId, setDragOverNodeId] = useState<string | null>(null);
     const [draggingCharId, setDraggingCharId] = useState<string | null>(null);
     const [isAddingVirtual, setIsAddingVirtual] = useState(false);
     const [isGuideOpen, setIsGuideOpen] = useState(false);
@@ -81,8 +82,26 @@ const FamilyTree: React.FC<Props> = ({
                 if (partner) spouses.add(partner);
             }
         });
-        return Array.from(spouses).sort();
-    }, [visibleLinks]);
+        
+        const spouseList = Array.from(spouses);
+        const orderKey = `spouses_${id}`;
+        const definedOrder = customOrder[orderKey];
+
+        if (definedOrder && definedOrder.length > 0) {
+            spouseList.sort((a, b) => {
+                const idxA = definedOrder.indexOf(a);
+                const idxB = definedOrder.indexOf(b);
+                if (idxA === -1 && idxB === -1) return a.localeCompare(b);
+                if (idxA === -1) return 1;
+                if (idxB === -1) return -1;
+                return idxA - idxB;
+            });
+        } else {
+            spouseList.sort();
+        }
+        
+        return spouseList;
+    }, [visibleLinks, customOrder]);
 
     const getParents = useCallback((childId: string) => {
         const parents = new Set<string>();
@@ -98,10 +117,8 @@ const FamilyTree: React.FC<Props> = ({
         const p1 = getParents(id1);
         const p2 = getParents(id2);
         
-        // Root siblings (no parents)
         if (p1.length === 0 && p2.length === 0) return 'roots';
 
-        // Check if parents match exactly
         if (p1.length !== p2.length) return null;
         const sortedP1 = [...p1].sort();
         const sortedP2 = [...p2].sort();
@@ -195,12 +212,17 @@ const FamilyTree: React.FC<Props> = ({
             }
         };
 
-        const layoutSubtree = (rootId: string, gen: number, startX: number, startY: number): number => {
-            if (placedNodes.has(rootId)) return 0;
+        const layoutSubtree = (rootId: string, gen: number, startX: number, startY: number): SubtreeStats => {
+            if (placedNodes.has(rootId)) return { width: 0, lBound: startX, rBound: startX };
 
             const allSpouses = getSpouses(rootId);
             const leftSpouses: string[] = [];
             const rightSpouses: string[] = [];
+            
+            // Logic: Even indices go right, Odd indices go left.
+            // Index 0 -> Right (Primary)
+            // Index 1 -> Left (Secondary)
+            // Index 2 -> Right...
             allSpouses.forEach((sId, idx) => {
                 if (idx % 2 !== 0) leftSpouses.push(sId);
                 else rightSpouses.push(sId);
@@ -259,22 +281,60 @@ const FamilyTree: React.FC<Props> = ({
                 }
             });
 
+            // Initialize bounds with the root row extent
+            let statsL = startX;
+            let statsR = currentX;
+            const rootRowWidth = statsR - statsL;
+
             const placeAndAlignChildren = (children: string[], width: number, targetCenterX: number) => {
                 if (children.length === 0) return;
                 let childStartX = targetCenterX - width / 2;
-                children.forEach(childId => {
-                    const w = layoutSubtree(childId, gen + 1, childStartX, startY);
-                    childStartX += w + SIBLING_GAP;
-                });
                 
+                // 1. Initial Layout & Stats Collection
+                const childStats: { id: string, stats: SubtreeStats }[] = [];
+                children.forEach(childId => {
+                    const s = layoutSubtree(childId, gen + 1, childStartX, startY);
+                    childStats.push({ id: childId, stats: s });
+                    childStartX += s.width + SIBLING_GAP;
+                });
+
+                // 2. Collision Detection (Left-to-Right)
+                // Ensure the left bound of a child is to the right of the right bound of previous child
+                for (let i = 0; i < childStats.length - 1; i++) {
+                    const current = childStats[i];
+                    const next = childStats[i+1];
+                    
+                    if (current.stats.rBound + SIBLING_GAP > next.stats.lBound) {
+                        const shift = (current.stats.rBound + SIBLING_GAP) - next.stats.lBound;
+                        shiftSubtree(next.id, shift);
+                        next.stats.lBound += shift;
+                        next.stats.rBound += shift;
+                        // Shift naturally propagates to subsequent siblings in next iterations of this loop
+                    }
+                }
+
+                // 3. Re-center group under parent
                 const childNodesX = children.map(c => nodePositions[c]?.x).filter(x => x !== undefined);
                 if (childNodesX.length > 0) {
-                    const minX = Math.min(...childNodesX);
-                    const maxX = Math.max(...childNodesX);
-                    const actualCenterX = (minX + maxX + CARD_WIDTH) / 2;
-                    const diff = targetCenterX - actualCenterX;
-                    children.forEach(c => shiftSubtree(c, diff));
+                    const minRootX = Math.min(...childNodesX);
+                    const maxRootX = Math.max(...childNodesX);
+                    const currentGroupCenter = (minRootX + maxRootX + CARD_WIDTH) / 2;
+                    const correction = targetCenterX - currentGroupCenter;
+                    
+                    if (Math.abs(correction) > 0.1) {
+                        children.forEach(c => shiftSubtree(c, correction));
+                        childStats.forEach(item => {
+                            item.stats.lBound += correction;
+                            item.stats.rBound += correction;
+                        });
+                    }
                 }
+
+                // Update parent's bounds based on children bounds
+                childStats.forEach(item => {
+                    statsL = Math.min(statsL, item.stats.lBound);
+                    statsR = Math.max(statsR, item.stats.rBound);
+                });
             };
 
             if (leftSpouses.length > 0) {
@@ -313,12 +373,9 @@ const FamilyTree: React.FC<Props> = ({
                 const pRoot = nodePositions[rootId];
                 const rootCenter = pRoot.x + CARD_WIDTH / 2;
                 placeAndAlignChildren(rootSingleChildren, rootSingleWidth, rootCenter);
-                if (allSpouses.length === 0) {
-                     return Math.max(currentX - startX, rootSingleWidth);
-                }
             }
 
-            return currentX - startX;
+            return { width: rootRowWidth, lBound: statsL, rBound: statsR };
         };
 
         const findRoots = () => {
@@ -353,22 +410,19 @@ const FamilyTree: React.FC<Props> = ({
                 let rootX = currentMaxX;
                 let rootY = 0;
                 
-                // Use manual coordinate if available for this root
+                // Use manual coordinate if available
                 if (rootCoords[root.id]) {
                     rootX = rootCoords[root.id].x;
                     rootY = rootCoords[root.id].y;
                 }
 
-                const width = layoutSubtree(root.id, 0, rootX, rootY);
+                const stats = layoutSubtree(root.id, 0, rootX, rootY);
                 
-                // If manually placed, we don't necessarily want to push the auto-layout cursor
-                // linearly unless it overlaps. For simplicity, we keep pushing currentMaxX 
-                // to avoid overlaps for subsequent auto-placed nodes, or if it was auto-placed.
+                // Ensure next root starts after this root's complete subtree
                 if (!rootCoords[root.id]) {
-                    currentMaxX += width + COUSIN_GAP; 
+                    currentMaxX = Math.max(currentMaxX, stats.rBound + COUSIN_GAP);
                 } else {
-                    // Update max X just in case mixed placement happens to avoid collision on right
-                    currentMaxX = Math.max(currentMaxX, rootX + width + COUSIN_GAP);
+                    currentMaxX = Math.max(currentMaxX, rootX + stats.width + COUSIN_GAP);
                 }
             }
         });
@@ -467,7 +521,7 @@ const FamilyTree: React.FC<Props> = ({
         setIsAddingVirtual(false);
     };
 
-    const handleDropOnPerson = (e: React.DragEvent, targetId: string, zone: 'parent' | 'spouse' | 'child_single' | 'other_relation') => {
+    const handleDropOnPerson = (e: React.DragEvent, targetId: string, zone: 'parent' | 'spouse_left' | 'spouse_right' | 'child_single' | 'other_relation') => {
         e.preventDefault(); e.stopPropagation();
         setDropTarget(null);
         setHoveredCharId(null);
@@ -478,9 +532,38 @@ const FamilyTree: React.FC<Props> = ({
         if (sourceId === targetId) return;
         onAddActiveChar(sourceId);
         
-        if (zone === 'spouse') {
+        if (zone === 'spouse_left' || zone === 'spouse_right') {
+            // Check if link exists
             const exists = familyLinks.some(l => l.type === 'marriage' && (l.partners || []).includes(targetId) && (l.partners || []).includes(sourceId));
             if (!exists) onAddFamilyLink({ id: crypto.randomUUID(), type: 'marriage', partners: [targetId, sourceId] });
+
+            const currentOrder = getSpouses(targetId).filter(id => id !== sourceId);
+            const newOrder = [...currentOrder];
+            
+            // Logic:
+            // Right Side: Index 0 (Even)
+            // Left Side: Index 1 (Odd)
+            
+            if (zone === 'spouse_right') {
+                // User dropped on Right Zone. Force to Index 0 (Primary Right).
+                newOrder.unshift(sourceId);
+            } else {
+                // User dropped on Left Zone.
+                if (newOrder.length === 0) {
+                    // No existing spouses. Must go to Index 0 (Right) as layout requires.
+                    newOrder.push(sourceId);
+                } else {
+                    // Has existing spouse(s). Insert at Index 1 (Primary Left).
+                    // This handles the "2nd spouse defaults to empty side" requirement.
+                    newOrder.splice(1, 0, sourceId);
+                }
+            }
+
+            onUpdateCustomOrder({
+                ...customOrder,
+                [`spouses_${targetId}`]: newOrder
+            });
+
         } else if (zone === 'other_relation') {
             onAddFamilyLink({ id: crypto.randomUUID(), type: 'other_same_level', partners: [targetId, sourceId], label: '自定义关系' });
         } else if (zone === 'parent') {
@@ -845,20 +928,30 @@ const FamilyTree: React.FC<Props> = ({
                                 <ArrowDown size={10} className="text-green-300"/>
                             </div>
 
-                            {/* Right: Add Spouse */}
+                            {/* Right: Add Spouse (Right) */}
                             <div 
-                                className={`absolute top-0 -right-4 bottom-0 w-4 flex items-center justify-center bg-pink-500/20 border-y-2 border-r-2 border-pink-500/50 rounded-r-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'spouse' ? 'bg-pink-500/50' : ''}`}
-                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'spouse' })}
-                                onDrop={(e) => handleDropOnPerson(e, char.id, 'spouse')}
+                                className={`absolute top-0 -right-6 bottom-0 w-6 flex items-center justify-center bg-pink-500/20 border-y-2 border-r-2 border-pink-500/50 rounded-r-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'spouse_right' ? 'bg-pink-500/50' : ''}`}
+                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'spouse_right' })}
+                                onDrop={(e) => handleDropOnPerson(e, char.id, 'spouse_right')}
                             >
                                 <Heart size={10} className="text-pink-300"/>
                             </div>
 
-                             {/* Left: Add Sibling/Other */}
+                            {/* Left: Add Spouse (Left) */}
+                            <div 
+                                className={`absolute top-0 -left-6 bottom-0 w-6 flex items-center justify-center bg-pink-500/20 border-y-2 border-l-2 border-pink-500/50 rounded-l-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'spouse_left' ? 'bg-pink-500/50' : ''}`}
+                                onDragEnter={() => setDropTarget({ id: char.id, zone: 'spouse_left' })}
+                                onDrop={(e) => handleDropOnPerson(e, char.id, 'spouse_left')}
+                            >
+                                <Heart size={10} className="text-pink-300"/>
+                            </div>
+
+                             {/* Top-Left Corner: Add Sibling/Other (Moved from full left edge to corner) */}
                              <div 
-                                className={`absolute top-0 -left-4 bottom-0 w-4 flex items-center justify-center bg-purple-500/20 border-y-2 border-l-2 border-purple-500/50 rounded-l-lg transition-colors z-40 cursor-pointer ${dropTarget?.zone === 'other_relation' ? 'bg-purple-500/50' : ''}`}
+                                className={`absolute -top-4 -left-4 w-6 h-6 flex items-center justify-center bg-purple-500/20 border-t-2 border-l-2 border-purple-500/50 rounded-tl-lg transition-colors z-50 cursor-pointer ${dropTarget?.zone === 'other_relation' ? 'bg-purple-500/50' : ''}`}
                                 onDragEnter={() => setDropTarget({ id: char.id, zone: 'other_relation' })}
                                 onDrop={(e) => handleDropOnPerson(e, char.id, 'other_relation')}
+                                title="添加同辈/其他关系"
                             >
                                 <ArrowLeftRight size={10} className="text-purple-300"/>
                             </div>
@@ -922,7 +1015,7 @@ const FamilyTree: React.FC<Props> = ({
                     <ul className="space-y-2 text-slate-300 list-disc pl-4">
                         <li><strong className="text-blue-300">拖拽至背景</strong>：添加为独立节点 (新家族/根)</li>
                         <li><strong className="text-blue-300">拖拽至卡片中心</strong>：调整同辈顺序 (Sibling Reorder)</li>
-                        <li><strong className="text-pink-300">拖至右侧边缘</strong>：添加配偶 (Spouse)</li>
+                        <li><strong className="text-pink-300">拖至左/右侧边缘</strong>：添加配偶 (Spouse) - 左侧放置于左，右侧放置于右</li>
                         <li><strong className="text-green-300">拖至底部边缘</strong>：添加子女 (Child)</li>
                         <li><strong className="text-blue-300">拖至顶部边缘</strong>：添加父母 (Parent)</li>
                     </ul>
@@ -970,3 +1063,4 @@ const FamilyTree: React.FC<Props> = ({
 };
 
 export default FamilyTree;
+
