@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { Character, TimelineSegment, Location, TimePeriodLabel, TimePoint } from '../types';
-import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users, Edit3, CheckCircle2, Circle, MousePointerClick, HelpCircle, ArrowRight, LayoutGrid, MousePointer2, AlignLeft } from 'lucide-react';
+import { Plus, Trash2, Clock, MapPin, UserPlus, X, Calendar, GripVertical, ChevronDown, ChevronUp, Link as LinkIcon, Map as MapIcon, Info, Maximize, Minimize, AlertCircle, Users, Edit3, CheckCircle2, Circle, MousePointerClick, HelpCircle, ArrowRight, LayoutGrid, MousePointer2, AlignLeft, Split, Merge } from 'lucide-react';
 
 interface Props {
   characters: Character[];
@@ -19,7 +19,7 @@ interface Props {
   onUpdateSlotCount: (count: number) => void;
   onUpdatePeriods: (periods: TimePeriodLabel[]) => void;
   onUpdateCharOrder: (order: string[]) => void;
-  onInsertSlot: (index: number) => void;
+  onInsertSlot: (index: number, inherit: boolean) => void;
   onDeleteSlot: (index: number) => void;
 }
 
@@ -62,6 +62,9 @@ const TimelineVertical: React.FC<Props> = ({
   const [newPeriodLabel, setNewPeriodLabel] = useState("");
   const [editingPeriodId, setEditingPeriodId] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(false);
+  
+  // New state for Insert confirmation
+  const [insertConfirmation, setInsertConfirmation] = useState<{ index: number } | null>(null);
 
   const topScrollRef = useRef<HTMLDivElement>(null);
   const mainScrollRef = useRef<HTMLDivElement>(null);
@@ -406,7 +409,7 @@ const TimelineVertical: React.FC<Props> = ({
                             <span className={`text-[10px] font-mono font-black transition-colors ${isSelected ? 'text-amber-400' : 'text-slate-600 group-hover/slot:text-slate-400'}`}>G{i+1}</span>
                             <div className="absolute bottom-1 left-1/2 -translate-x-1/2 flex gap-1 opacity-0 group-hover/slot:opacity-100 transition-all z-[80]">
                                 <button 
-                                    onClick={(e) => { e.stopPropagation(); onInsertSlot(i); }}
+                                    onClick={(e) => { e.stopPropagation(); setInsertConfirmation({ index: i }); }}
                                     title="在此下方插入一格"
                                     className="p-1 bg-blue-600 rounded text-white hover:scale-110 shadow border border-white/10"
                                 >
@@ -499,6 +502,49 @@ const TimelineVertical: React.FC<Props> = ({
           </div>
         </div>
       </div>
+
+      {/* Insert Confirmation Modal */}
+      {insertConfirmation && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setInsertConfirmation(null)}>
+              <div className="bg-slate-800 border border-slate-700 rounded-2xl p-6 w-full max-w-sm shadow-2xl animate-in zoom-in-95" onClick={e => e.stopPropagation()}>
+                  <h3 className="text-lg font-black text-white mb-2 uppercase tracking-widest text-center flex items-center justify-center gap-2">
+                      <Plus className="text-blue-500" /> 插入时间格
+                  </h3>
+                  <p className="text-xs text-slate-400 text-center mb-6 leading-relaxed px-4">
+                      您正准备在 <span className="text-white font-bold">G{insertConfirmation.index + 1}</span> 处插入新格子。
+                      <br/>对于当前跨越该点的时间段和活动，您希望：
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                      <button 
+                          onClick={() => {
+                              onInsertSlot(insertConfirmation.index, true);
+                              setInsertConfirmation(null);
+                          }}
+                          className="flex flex-col items-center justify-center gap-3 p-4 bg-slate-700 hover:bg-slate-600 rounded-xl border border-slate-600 hover:border-blue-500 transition-all group"
+                      >
+                          <div className="p-3 bg-blue-500/20 text-blue-400 rounded-full group-hover:scale-110 transition-transform"><Merge size={24}/></div>
+                          <div className="text-center">
+                              <span className="block text-xs font-bold text-white mb-0.5">智能延续</span>
+                              <span className="block text-[9px] text-slate-400">延长当前活动时长</span>
+                          </div>
+                      </button>
+                      <button 
+                          onClick={() => {
+                              onInsertSlot(insertConfirmation.index, false);
+                              setInsertConfirmation(null);
+                          }}
+                          className="flex flex-col items-center justify-center gap-3 p-4 bg-slate-700 hover:bg-slate-600 rounded-xl border border-slate-600 hover:border-amber-500 transition-all group"
+                      >
+                          <div className="p-3 bg-amber-500/20 text-amber-400 rounded-full group-hover:scale-110 transition-transform"><Split size={24}/></div>
+                          <div className="text-center">
+                              <span className="block text-xs font-bold text-white mb-0.5">留白断开</span>
+                              <span className="block text-[9px] text-slate-400">切断并插入空白格</span>
+                          </div>
+                      </button>
+                  </div>
+              </div>
+          </div>
+      )}
 
       {/* Selection Menu Modal */}
       {showSelectionMenu && selectionRange && (

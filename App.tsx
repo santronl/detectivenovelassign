@@ -255,22 +255,92 @@ const App: React.FC = () => {
     } else { fileImportRef.current?.click(); }
   };
 
-  const handleInsertSlot = (index: number) => {
-    setState(prev => ({
-        ...prev,
-        timelineSlotCount: prev.timelineSlotCount + 1,
-        timelineSegments: prev.timelineSegments.map(s => ({
-            ...s,
-            startSlot: s.startSlot >= index ? s.startSlot + 1 : s.startSlot,
-            endSlot: s.endSlot > index ? s.endSlot + 1 : s.endSlot
-        })),
-        timelinePeriods: prev.timelinePeriods.map(p => ({
-            ...p,
-            startSlot: p.startSlot >= index ? p.startSlot + 1 : p.startSlot,
-            endSlot: p.endSlot > index ? p.endSlot + 1 : p.endSlot
-        }))
-    }));
-    setStatusMessage("已在 G" + (index+1) + " 后插入新格子");
+  const handleInsertSlot = (index: number, inherit: boolean) => {
+    setState(prev => {
+        const newSegments: TimelineSegment[] = [];
+        prev.timelineSegments.forEach(s => {
+            if (s.endSlot <= index) {
+                // Before insertion: No change
+                newSegments.push(s);
+            } else if (s.startSlot >= index) {
+                // After insertion: Shift down entirely
+                newSegments.push({
+                    ...s,
+                    startSlot: s.startSlot + 1,
+                    endSlot: s.endSlot + 1
+                });
+            } else {
+                // Spanning insertion point (start < index < end)
+                if (inherit) {
+                    // Extend to cover new slot
+                    newSegments.push({
+                        ...s,
+                        endSlot: s.endSlot + 1
+                    });
+                } else {
+                    // Split into two parts (creating a gap at `index`)
+                    
+                    // Part 1: Start to Index
+                    if (index > s.startSlot) {
+                        newSegments.push({
+                            ...s,
+                            endSlot: index
+                        });
+                    }
+                    // Part 2: Index+1 to End+1
+                    if (s.endSlot > index) {
+                        newSegments.push({
+                            ...s,
+                            id: crypto.randomUUID(), // New ID for split part
+                            startSlot: index + 1,
+                            endSlot: s.endSlot + 1
+                        });
+                    }
+                }
+            }
+        });
+
+        const newPeriods: TimePeriodLabel[] = [];
+        prev.timelinePeriods.forEach(p => {
+             if (p.endSlot <= index) {
+                newPeriods.push(p);
+            } else if (p.startSlot >= index) {
+                newPeriods.push({
+                    ...p,
+                    startSlot: p.startSlot + 1,
+                    endSlot: p.endSlot + 1
+                });
+            } else {
+                // Spanning
+                if (inherit) {
+                    newPeriods.push({
+                        ...p,
+                        endSlot: p.endSlot + 1
+                    });
+                } else {
+                    if (index > p.startSlot) {
+                        newPeriods.push({ ...p, endSlot: index });
+                    }
+                    if (p.endSlot > index) {
+                        newPeriods.push({
+                            ...p,
+                            id: crypto.randomUUID(),
+                            startSlot: index + 1,
+                            endSlot: p.endSlot + 1
+                        });
+                    }
+                }
+            }
+        });
+
+        return {
+            ...prev,
+            timelineSlotCount: prev.timelineSlotCount + 1,
+            timelineSegments: newSegments,
+            timelinePeriods: newPeriods
+        };
+    });
+    setStatusMessage(`已在 G${index+1} 处插入新格子 (${inherit ? "延续" : "断开"})`);
   };
 
   const handleDeleteSlot = (index: number) => {
