@@ -462,10 +462,10 @@ const TimelineVertical: React.FC<Props> = ({
                             setSelectedMultiChars([seg.characterId]);
                             setIsModalOpen(true); 
                         }}
-                        className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-3 overflow-hidden flex flex-col justify-center border border-slate-700/50 backdrop-blur-sm cursor-pointer"
+                        className="absolute left-3 right-3 rounded-xl border-l-4 shadow-xl group/seg transition-all hover:scale-[1.02] hover:z-20 p-2.5 overflow-hidden flex flex-col border border-slate-700/50 backdrop-blur-sm cursor-pointer"
                       >
-                        <div className="flex items-start justify-between">
-                          <div className="flex flex-col gap-0.5 min-w-0">
+                        <div className="flex items-start justify-between shrink-0 gap-2">
+                          <div className="flex flex-col gap-0.5 min-w-0 flex-1">
                               <span className="text-[11px] font-black text-white truncate flex items-center gap-1.5">
                                 <MapPin size={12} style={{ color: seg.color }} /> {seg.locationName}
                               </span>
@@ -479,14 +479,17 @@ const TimelineVertical: React.FC<Props> = ({
                                   )}
                                 </div>
                               )}
-                              {seg.note && (
-                                <div className="mt-1.5 pt-1.5 border-t border-white/10 text-[9px] text-blue-100/70 leading-tight italic line-clamp-2">
+                          </div>
+                          <button onClick={(e) => { e.stopPropagation(); onRemoveSegment(seg.id); }} className="opacity-0 group-hover/seg:opacity-100 p-1 text-red-400 hover:bg-red-500 hover:text-white rounded transition-all shrink-0"><Trash2 size={12} /></button>
+                        </div>
+                        
+                        {seg.note && (
+                            <div className="flex-1 min-h-0 border-t border-white/10 pt-1.5 mt-1.5">
+                                <div className="text-[10px] text-blue-100/80 leading-relaxed whitespace-pre-wrap h-full overflow-y-auto custom-scrollbar pr-1 font-medium">
                                     {seg.note}
                                 </div>
-                              )}
-                          </div>
-                          <button onClick={(e) => { e.stopPropagation(); onRemoveSegment(seg.id); }} className="opacity-0 group-hover/seg:opacity-100 p-1.5 text-red-400 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={12} /></button>
-                        </div>
+                            </div>
+                        )}
                       </div>
                     );
                   })}
